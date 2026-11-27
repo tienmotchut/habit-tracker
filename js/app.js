@@ -20,6 +20,8 @@ const fmtTs = (ts) => { const d = new Date(ts); const sameDay = ymd(d) === today
 const PALETTE = ["#2f8f3f", "#e0a100", "#3aa676", "#6b8e23", "#d97706", "#0f766e", "#c2410c", "#4d7c0f"];
 const colorFor = (id = "") => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
 const initials = (n = "?") => n.trim().split(/\s+/).slice(-2).map((w) => w[0]).join("").toUpperCase() || "?";
+/** escape + làm dịu emoji trong chat */
+const soft = (v) => esc(v).replace(/(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*)/gu, '<span class="emo">$1</span>');
 const isImage = (name = "") => /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif)$/i.test(name);
 
 let toastTimer;
@@ -828,17 +830,17 @@ function msgHtml(m) {
   const mine = m.user_id === S.user.id;
   if (m.kind === "chat") {
     return `<div class="msg ${mine ? "mine" : ""}">${avatar(m.user_id, "sm")}
-      <div><div class="who">${mine ? "" : esc(nameOf(m.user_id)) + " · "}${fmtTs(m.created_at)}</div><div class="bubble">${esc(m.content)}</div></div></div>`;
+      <div><div class="who">${mine ? "" : esc(nameOf(m.user_id)) + " · "}${fmtTs(m.created_at)}</div><div class="bubble">${soft(m.content)}</div></div></div>`;
   }
   if (m.kind === "system") {
-    return `<div class="sysmsg"><div class="box plain">${esc(m.content)} <span class="time">${fmtTs(m.created_at)}</span></div></div>`;
+    return `<div class="sysmsg"><div class="box plain">${soft(m.content)} <span class="time">${fmtTs(m.created_at)}</span></div></div>`;
   }
   const ref = m.ref_type ? refInfo(m.ref_type, m.ref_id) : null;
   const status = ref ? ref.status : "deleted";
   const tag = status === "pending" ? `<span class="tag p">Pending</span>` : status === "approved" ? `<span class="tag" style="background:#dcfce7;color:#15803d">Approved</span>` : status === "rejected" ? `<span class="tag r">Declined</span>` : `<span class="tag">Deleted</span>`;
-  const extra = m.ref_type === "task" && ref?.x ? `<div class="muted" style="font-size:13px;margin-top:4px">${esc(topicOf(ref.x.topic_id)?.icon || "")} ${esc(topicOf(ref.x.topic_id)?.name || "")} · ${ref.x.frequency === "weekly" ? "weekly" : "daily"}${ref.x.reminder_time ? " · ⏰ " + ref.x.reminder_time.slice(0, 5) : ""}</div>` : "";
+  const extra = m.ref_type === "task" && ref?.x ? `<div class="muted" style="font-size:13px;margin-top:4px">${soft(topicOf(ref.x.topic_id)?.icon || "")} ${esc(topicOf(ref.x.topic_id)?.name || "")} · ${ref.x.frequency === "weekly" ? "weekly" : "daily"}${ref.x.reminder_time ? " · " + ref.x.reminder_time.slice(0, 5) : ""}</div>` : "";
   return `<div class="sysmsg"><div class="box">
-    ${m.kind === "join" ? "🙋" : "💡"} <b>${esc(nameOf(m.user_id))}</b> ${esc(m.content)} <span class="time">${fmtTs(m.created_at)}</span>
+    <b>${esc(nameOf(m.user_id))}</b> ${soft(m.content)} <span class="time">${fmtTs(m.created_at)}</span>
     ${extra}
     <div class="acts">${tag}${status === "pending" ? approveBtns(m.ref_type, m.ref_id) : ""}
       ${m.ref_type === "task" && ref?.x && (isOwner() || ref.x.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${m.ref_id}">View / edit</button>` : ""}</div>
@@ -852,7 +854,7 @@ function viewChat() {
   <p class="sub">Talk with the group. Every topic and task proposal and join request shows up here${isOwner() ? " for you to approve" : ""}.</p>
   <div class="chat-layout">
     <div class="card chat">
-      <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">No messages yet. Say hi! 👋</div>`}</div>
+      <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">No messages yet. Say hi.</div>`}</div>
       <form class="chat-form" id="chat-form">
         <input class="in" id="chat-input" placeholder="Message the group…" maxlength="1000" autocomplete="off" />
         <button class="btn" type="submit">Send</button>
@@ -860,18 +862,18 @@ function viewChat() {
     </div>
     <div>
       <div class="card">
-        <h2 style="margin-bottom:6px">⏳ Pending approval <span class="badge">${pend.length}</span></h2>
+        <h2 style="margin-bottom:6px">Pending approval <span class="count">${pend.length}</span></h2>
         ${pend.map(({ type, item }) => `
           <div class="pending-item">
             <div><span class="tag ${type === "member" ? "y" : ""}">${type === "member" ? "Member" : type === "topic" ? "Topic" : "Task"}</span>
-              <b>${esc(type === "member" ? item.display_name : type === "topic" ? item.icon + " " + item.name : item.title)}</b></div>
+              <b>${soft(type === "member" ? item.display_name : type === "topic" ? item.icon + " " + item.name : item.title)}</b></div>
             <div class="muted" style="font-size:12px;margin:3px 0 6px">${type === "member" ? "wants to join" : "proposed by " + esc(nameOf(item.created_by))}${type === "task" ? " · " + esc(topicOf(item.topic_id)?.name || "") + (item.assignee_id ? " · for " + esc(nameOf(item.assignee_id)) : "") : ""}</div>
             <div class="row">${isOwner() ? approveBtns(type, item.id) : `<span class="muted" style="font-size:13px">Waiting for the owner</span>`}
               ${type === "task" && (isOwner() || item.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${item.id}">View</button>` : ""}</div>
-          </div>`).join("") || `<p class="muted">Nothing to approve 🎉</p>`}
+          </div>`).join("") || `<p class="muted">Nothing to approve</p>`}
       </div>
       <div class="card" style="margin-top:16px">
-        <h2 style="margin-bottom:8px">👥 Today</h2>
+        <h2 style="margin-bottom:8px">Today</h2>
         ${members().map((m) => {
           const list = tasksFor(m.id);
           const done = list.filter((t) => checkinOf(t.id, m.id, periodOf(t, today()))).length;
