@@ -340,3 +340,7 @@ h2 { font-size: 24px; }
 .drop:hover, .drop.over { background: #eef6e7; border-color: var(--blue); }
 .drop img.preview { max-height: 260px; width: auto; max-width: 100%; }
 .at-btn { font-size: 18px; padding: 6px 14px; }
+
+/* ---------- Logo ---------- */
+.brand img.logo { width: 40px; height: 40px; border-radius: 50%; box-shadow: 0 2px 8px rgba(35, 84, 47, .18); background: none; display: block; padding: 0; }
+.auth .brand img.logo { width: 46px; height: 46px; }

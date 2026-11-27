@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a8a52"/>
+      <stop offset="1" stop-color="#23542f"/>
+    </linearGradient>
+    <linearGradient id="au" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f3d98b"/>
+      <stop offset=".55" stop-color="#d4a640"/>
+      <stop offset="1" stop-color="#b8862a"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="31" fill="url(#bg)"/>
+  <circle cx="32" cy="32" r="27" fill="none" stroke="url(#au)" stroke-width="1.1" opacity=".9"/>
+  <!-- cành ô liu -->
+  <path d="M21.5 47 C27 40 31 33 41.5 17" fill="none" stroke="url(#au)" stroke-width="1.7" stroke-linecap="round"/>
+  <g fill="#eef3df">
+    <path d="M27.6 38.6 C22.6 38.9 19.4 35.6 19.3 31.9 C23.6 31.7 27 34.4 27.6 38.6Z"/>
+    <path d="M27.9 38.2 C31.7 41.3 36.3 41.2 38.8 38.4 C35.8 35.6 31.4 35.4 27.9 38.2Z" opacity=".92"/>
+    <path d="M31.9 31.2 C27.2 30.3 25.1 26.3 26 22.8 C30.2 23.6 32.6 27.1 31.9 31.2Z"/>
+    <path d="M32.3 30.8 C36.5 33.1 40.9 32.2 42.8 29.1 C39.4 26.9 35.1 27.6 32.3 30.8Z" opacity=".92"/>
+    <path d="M36.4 24.1 C33 21.3 32.9 17.2 35 14.6 C38 17 38.6 20.8 36.4 24.1Z"/>
+  </g>
+  <circle cx="42.2" cy="16.2" r="2.3" fill="url(#au)"/>
+</svg>

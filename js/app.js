@@ -193,7 +193,7 @@ async function boot(session) {
 function renderSetupNeeded() {
   $("#app").innerHTML = `
   <div class="auth-wrap"><div class="card auth" style="max-width:560px">
-    <div class="brand"><div class="logo">HC</div>${esc(APP_NAME)}</div>
+    <div class="brand"><img class="logo" src="img/icon.svg" alt="" />${esc(APP_NAME)}</div>
     <h1>Connect Supabase</h1>
     <p class="muted">Open <code>js/config.js</code> in the GitHub repo and fill in <b>SUPABASE_URL</b> and <b>SUPABASE_ANON_KEY</b>. See <code>README.md</code> for details.</p>
   </div></div>`;
@@ -202,7 +202,7 @@ function renderSetupNeeded() {
 function renderBlocked(html, canWait = false) {
   $("#app").innerHTML = `
   <div class="auth-wrap"><div class="card auth">
-    <div class="brand"><div class="logo">HC</div>${esc(APP_NAME)}</div>
+    <div class="brand"><img class="logo" src="img/icon.svg" alt="" />${esc(APP_NAME)}</div>
     <h1>${canWait ? "Awaiting approval ⏳" : "Access denied"}</h1>
     <p class="muted">${html}</p>
     <button class="btn ghost" data-act="logout">Sign out</button>
@@ -213,7 +213,7 @@ function renderAuth(mode = "login") {
   const signup = mode === "signup";
   $("#app").innerHTML = `
   <div class="auth-wrap"><form class="card auth" id="auth-form">
-    <div class="brand"><div class="logo">HC</div>${esc(APP_NAME)}</div>
+    <div class="brand"><img class="logo" src="img/icon.svg" alt="" />${esc(APP_NAME)}</div>
     <h1>${signup ? "Create account" : "Sign in"}</h1>
     <p class="muted">${signup ? "The first person to sign up becomes the owner, the only one who can approve." : "Keep good habits, together ✨"}</p>
     ${signup ? `<label class="f">Display name</label><input class="in" name="name" required maxlength="40" />` : ""}
@@ -266,7 +266,7 @@ const TABS = [
 function renderShell() {
   $("#app").innerHTML = `
   <header class="topbar">
-    <div class="brand"><div class="logo">HC</div><span>${esc(APP_NAME)}</span></div>
+    <div class="brand"><img class="logo" src="img/icon.svg" alt="" /><span>${esc(APP_NAME)}</span></div>
     <nav class="nav" id="nav"></nav>
     <div class="me">
       <button class="icon-btn" data-act="toggle-notify" id="bell" title="Browser reminders"></button>
