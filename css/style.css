@@ -331,3 +331,11 @@ h2 { font-size: 24px; }
 .mention { color: #4f6b53; font-weight: 500; background: #e3ebdf; border-radius: 6px; padding: 0 4px; }
 .msg.mine .mention { background: #d5e0d0; }
 .chat-layout .msg.hit .bubble { box-shadow: inset 3px 0 0 #b9c7b5; background: #eef1ea; }
+
+/* ---------- Upload drop zone ---------- */
+.drop {
+  display: block; margin-top: 12px; border: 1.5px dashed #bcd3b0; border-radius: 16px; padding: 22px 16px;
+  text-align: center; cursor: pointer; background: #f7fbf3; transition: background .15s, border-color .15s;
+}
+.drop:hover, .drop.over { background: #eef6e7; border-color: var(--blue); }
+.drop img.preview { max-height: 260px; width: auto; max-width: 100%; }

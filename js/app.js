@@ -431,52 +431,83 @@ function streakOf(uid) {
 }
 
 /* ----- Nộp minh chứng ----- */
+const MAX_SIDE = 1280;      // cạnh dài tối đa sau khi nén
+const JPEG_QUALITY = 0.72; // ~100–200 KB / ảnh
+
 async function compressImage(file) {
-  if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 1.5e6) return file;
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") return file;
   try {
     const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
     const cv = document.createElement("canvas");
     cv.width = Math.round(bmp.width * scale);
     cv.height = Math.round(bmp.height * scale);
-    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
-    const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", 0.85));
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#fff"; // ảnh PNG trong suốt -> nền trắng
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(bmp, 0, 0, cv.width, cv.height);
+    const blob = await new Promise((r) => cv.toBlob(r, "image/jpeg", JPEG_QUALITY));
     if (!blob || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    const base = (file.name || "photo").replace(/\.\w+$/, "") || "photo";
+    return new File([blob], base + ".jpg", { type: "image/jpeg" });
   } catch {
-    return file;
+    return file; // trình duyệt không đọc được định dạng (vd HEIC trên Chrome) -> giữ nguyên
   }
 }
+
+const kb = (n) => (n > 1024 * 1024 ? (n / 1024 / 1024).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB");
 
 function openProofModal(taskId) {
   const t = S.tasks.find((x) => x.id === taskId);
   const day = S.date;
+  let chosen = null;
   openModal(`
     <h2>Upload proof</h2>
     <p class="muted" style="margin-top:0">${esc(t.title)} · ${t.frequency === "weekly" ? "week of " + fmtDate(mondayOf(day)) : fmtDate(day)}</p>
-    <label class="f">Photo or file (max 10 MB)</label>
-    <input class="in" type="file" id="proof-file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.mp3,.m4a,.mp4,.mov" />
-    <div id="proof-prev" style="margin-top:10px"></div>
+    <label class="drop" id="proof-drop">
+      <input type="file" id="proof-file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.mp3,.m4a,.mp4,.mov" hidden />
+      <div id="proof-prev"><b>Tap to take or choose a photo</b><br><span class="muted">or paste an image (Ctrl / ⌘ + V), or drag it here</span></div>
+    </label>
+    <div class="muted" id="proof-size" style="font-size:12px;margin-top:6px">Photos are compressed automatically. Files up to 10 MB.</div>
     <label class="f">Note (optional)</label>
     <textarea class="in" id="proof-note" maxlength="500" placeholder="e.g. ran 5 km this morning"></textarea>
     <div class="foot">
       <button class="btn ghost" data-act="close-modal">Cancel</button>
       <button class="btn y" id="proof-go">Mark done ✓</button>
     </div>`);
-  $("#proof-file").onchange = (e) => {
-    const f = e.target.files[0];
-    $("#proof-prev").innerHTML = f && f.type.startsWith("image/") ? `<img class="preview" src="${URL.createObjectURL(f)}" />` : f ? `<span class="file-chip">📄 ${esc(f.name)}</span>` : "";
+
+  async function useFile(f) {
+    if (!f) return;
+    $("#proof-size").textContent = "Compressing…";
+    const out = await compressImage(f);
+    chosen = out;
+    $("#proof-prev").innerHTML = out.type.startsWith("image/")
+      ? `<img class="preview" src="${URL.createObjectURL(out)}" />`
+      : `<span class="file-chip">📄 ${esc(out.name)}</span>`;
+    $("#proof-size").textContent = out !== f ? `Compressed ${kb(f.size)} → ${kb(out.size)}` : `${kb(out.size)}`;
+  }
+  $("#proof-file").onchange = (e) => useFile(e.target.files[0]);
+  const drop = $("#proof-drop");
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); useFile(e.dataTransfer.files[0]); };
+  S.onPaste = (e) => {
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.kind === "file");
+    if (!item) return;
+    e.preventDefault();
+    const f = item.getAsFile();
+    useFile(f.name && f.name !== "image.png" ? f : new File([f], `pasted-${Date.now()}.${(f.type.split("/")[1] || "png")}`, { type: f.type }));
   };
+
   $("#proof-go").onclick = async (e) => {
-    let file = $("#proof-file").files[0];
+    let file = chosen;
     if (!file) return toast("Please choose a photo or file first", true);
     e.target.disabled = true;
     e.target.textContent = "Uploading…";
     try {
-      file = await compressImage(file);
       if (file.size > 10 * 1024 * 1024) throw new Error("File is larger than 10 MB");
       const period = periodOf(t, day);
-      const safe = file.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_").slice(-60);
+      const safe = file.name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.\-]+/g, "_").slice(-60);
       const path = `${S.me.id}/${period}/${t.id}-${Date.now()}-${safe}`;
       const up = await sb.storage.from("proofs").upload(path, file, { contentType: file.type || "application/octet-stream" });
       if (up.error) throw up.error;
@@ -1029,7 +1060,7 @@ function openModal(html) {
   $("#modal-root").innerHTML = `<div class="modal-bg" data-act="modal-bg"><div class="modal">${html}</div></div>`;
   $("#modal-root input, #modal-root textarea")?.focus();
 }
-function closeModal() { $("#modal-root").innerHTML = ""; }
+function closeModal() { $("#modal-root").innerHTML = ""; S.onPaste = null; }
 
 const actions = {
   "auth-mode": (d, el, e) => { e.preventDefault(); renderAuth(d.mode); },
@@ -1099,6 +1130,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") closeModal();
 });
+document.addEventListener("paste", (e) => { if (S.onPaste && $("#proof-drop")) S.onPaste(e); });
 document.addEventListener("input", (e) => { if (e.target.id === "chat-input") updateMentionPop(); });
 
 // Đổi ngày lúc nửa đêm / quay lại tab
