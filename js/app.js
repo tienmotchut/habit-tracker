@@ -826,11 +826,55 @@ function refInfo(type, id) {
   return x ? { status: x.status, label: x.name || x.title, x } : null;
 }
 
+/* ----- @mention ----- */
+const fold = (x = "") => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase();
+const mentionNames = () => [...members().map((m) => m.display_name), "everyone"].sort((a, b) => b.length - a.length);
+function mentionsMe(text) {
+  const t = fold(text);
+  return t.includes("@everyone") || t.includes("@" + fold(S.me.display_name));
+}
+function withMentions(text) {
+  let html = soft(text);
+  for (const n of mentionNames()) {
+    const en = esc(n);
+    html = html.split("@" + en).join(`<span class="mention">@${en}</span>`);
+  }
+  return html;
+}
+function mentionQuery() {
+  const inp = $("#chat-input");
+  if (!inp) return null;
+  const before = inp.value.slice(0, inp.selectionStart);
+  const m = before.match(/(?:^|\s)@([^@\n]{0,24})$/);
+  return m ? { q: m[1], start: before.length - m[1].length - 1 } : null;
+}
+function updateMentionPop() {
+  const pop = $("#mention-pop");
+  if (!pop) return;
+  const mq = mentionQuery();
+  const list = mq ? [...members().filter((m) => m.id !== S.me.id).map((m) => ({ id: m.id, name: m.display_name })), { id: "", name: "everyone" }]
+    .filter((x) => fold(x.name).includes(fold(mq.q).trim())).slice(0, 6) : [];
+  pop.hidden = !list.length;
+  pop.innerHTML = list.map((x, i) => `<button type="button" class="${i === 0 ? "on" : ""}" data-act="mention-pick" data-name="${esc(x.name)}">${x.id ? avatar(x.id, "sm") : `<span class="avatar sm" style="background:#a9b3a6">@</span>`}<span>${esc(x.name)}</span></button>`).join("");
+}
+function pickMention(name) {
+  const inp = $("#chat-input");
+  const mq = mentionQuery();
+  if (!inp || !mq) return;
+  const after = inp.value.slice(inp.selectionStart);
+  inp.value = inp.value.slice(0, mq.start) + "@" + name + " " + after.replace(/^\s+/, "");
+  const pos = mq.start + name.length + 2;
+  inp.focus();
+  inp.setSelectionRange(pos, pos);
+  updateMentionPop();
+}
+
 function msgHtml(m) {
   const mine = m.user_id === S.user.id;
   if (m.kind === "chat") {
-    return `<div class="msg ${mine ? "mine" : ""}">${avatar(m.user_id, "sm")}
-      <div><div class="who">${mine ? "" : esc(nameOf(m.user_id)) + " · "}${fmtTs(m.created_at)}</div><div class="bubble">${soft(m.content)}</div></div></div>`;
+    const hit = !mine && mentionsMe(m.content);
+    return `<div class="msg ${mine ? "mine" : ""} ${hit ? "hit" : ""}">${avatar(m.user_id, "sm")}
+      <div><div class="who">${mine ? "" : esc(nameOf(m.user_id)) + " · "}${fmtTs(m.created_at)}</div><div class="bubble">${withMentions(m.content)}</div></div></div>`;
   }
   if (m.kind === "system") {
     return `<div class="sysmsg"><div class="box plain">${soft(m.content)} <span class="time">${fmtTs(m.created_at)}</span></div></div>`;
@@ -856,7 +900,8 @@ function viewChat() {
     <div class="card chat">
       <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">No messages yet. Say hi.</div>`}</div>
       <form class="chat-form" id="chat-form">
-        <input class="in" id="chat-input" placeholder="Message the group…" maxlength="1000" autocomplete="off" />
+        <div id="mention-pop" class="mention-pop" hidden></div>
+        <input class="in" id="chat-input" placeholder="Message the group… type @ to mention someone" maxlength="1000" autocomplete="off" />
         <button class="btn" type="submit">Send</button>
       </form>
     </div>
@@ -896,8 +941,10 @@ function onNewMessage(m) {
   if (m.user_id === S.user.id) return;
   if (S.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
     const who = nameOf(m.user_id);
-    new Notification(m.kind === "chat" ? `💬 ${who}` : "💡 Needs approval", { body: m.kind === "chat" ? m.content : `${who} ${m.content}`, tag: "msg" });
+    const hit = m.kind === "chat" && mentionsMe(m.content);
+    new Notification(hit ? `@ ${who} mentioned you` : m.kind === "chat" ? who : "Needs approval", { body: m.kind === "chat" ? m.content : `${who} ${m.content}`, tag: "msg" });
   }
+  if (m.kind === "chat" && mentionsMe(m.content) && S.tab !== "chat") toast(`@ ${nameOf(m.user_id)} mentioned you in chat`);
 }
 
 /* =============================================================
@@ -1008,6 +1055,7 @@ const actions = {
   "ics-all": () => downloadIcs(tasksFor(S.me.id), "habit-reminders.ics"),
   "toggle-notify": () => toggleNotify(),
   "close-modal": () => closeModal(),
+  "mention-pick": (d, el, e) => { e.preventDefault(); pickMention(d.name); },
   "modal-bg": (d, el, e) => { if (e.target === el) closeModal(); },
 };
 
@@ -1034,7 +1082,24 @@ document.addEventListener("submit", (e) => {
   sendChat(text);
 });
 
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+document.addEventListener("keydown", (e) => {
+  const pop = $("#mention-pop");
+  if (e.target.id === "chat-input" && pop && !pop.hidden) {
+    const items = [...pop.querySelectorAll("button")];
+    let i = items.findIndex((b) => b.classList.contains("on"));
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      items[i]?.classList.remove("on");
+      i = (i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
+      items[i].classList.add("on");
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(items[Math.max(i, 0)].dataset.name); return; }
+    if (e.key === "Escape") { pop.hidden = true; return; }
+  }
+  if (e.key === "Escape") closeModal();
+});
+document.addEventListener("input", (e) => { if (e.target.id === "chat-input") updateMentionPop(); });
 
 // Đổi ngày lúc nửa đêm / quay lại tab
 document.addEventListener("visibilitychange", () => {
