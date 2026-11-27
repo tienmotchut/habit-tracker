@@ -6,6 +6,6 @@
 //  KHÔNG dán "service_role" key vào đây.
 // ================================================================
 export const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-export const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
+export const SUPABASE_ANON_KEY = "sb_publishable_p5bYV0cTUDOT9mW5izcc0g_7yvV0n2T";
 
 export const APP_NAME = "Thói quen nhóm";
