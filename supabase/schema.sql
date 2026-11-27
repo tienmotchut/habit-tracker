@@ -64,7 +64,7 @@ create table if not exists public.topics (
   id         uuid primary key default gen_random_uuid(),
   name       text not null,
   icon       text not null default '⭐',
-  color      text not null default '#2563eb',
+  color      text not null default '#2f8f3f',
   status     text not null default 'pending' check (status in ('pending','approved','rejected')),
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
@@ -291,10 +291,10 @@ end $$;
 -- ---------- Dữ liệu mặc định ----------
 insert into public.topics (name, icon, color, status)
 select * from (values
-  ('Fitness',                 '💪', '#2563eb', 'approved'),
-  ('Uống đủ nước',            '💧', '#0ea5e9', 'approved'),
+  ('Fitness',                 '💪', '#2f8f3f', 'approved'),
+  ('Uống đủ nước',            '💧', '#3aa676', 'approved'),
   ('Học tiếng Trung',         '🀄', '#eab308', 'approved'),
-  ('Công việc',               '💼', '#1e40af', 'approved'),
+  ('Công việc',               '💼', '#6b8e23', 'approved'),
   ('Nói chuyện với gia đình', '👨‍👩‍👧', '#f59e0b', 'approved')
 ) v where not exists (select 1 from public.topics);
 

@@ -16,7 +16,7 @@ const tsDay = (ts) => ymd(new Date(ts));
 const WD = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 const fmtDate = (s) => { const d = parseYmd(s); return `${WD[d.getDay()]}, ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
 const fmtTs = (ts) => { const d = new Date(ts); const sameDay = ymd(d) === today(); return `${pad(d.getHours())}:${pad(d.getMinutes())}${sameDay ? "" : ` · ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`}`; };
-const PALETTE = ["#1f6fe5", "#e0a100", "#0e9bd8", "#3b4fd6", "#d97706", "#0f766e", "#7c3aed", "#db2777"];
+const PALETTE = ["#2f8f3f", "#e0a100", "#3aa676", "#6b8e23", "#d97706", "#0f766e", "#c2410c", "#4d7c0f"];
 const colorFor = (id = "") => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
 const initials = (n = "?") => n.trim().split(/\s+/).slice(-2).map((w) => w[0]).join("").toUpperCase() || "?";
 const isImage = (name = "") => /\.(png|jpe?g|gif|webp|heic|heif|bmp|avif)$/i.test(name);
@@ -705,7 +705,7 @@ function membersCard() {
 
 function openTopicModal(id) {
   const tp = id ? S.topics.find((t) => t.id === id) : null;
-  const icons = ["💪", "💧", "🀄", "💼", "👨‍👩‍👧", "📚", "🧘", "🏃", "🥗", "😴", "💰", "🎨", "🎵", "🧹", "🌱", "✍️"];
+  const icons = ["💪", "🏃", "🧘", "🚴", "🏊", "💧", "🥗", "🍎", "😴", "🀄", "📚", "✍️", "🎧", "💼", "💻", "📈", "💰", "👨‍👩‍👧", "📞", "❤️", "🙏", "🌱", "🧹", "🎨", "🎵", "📵", "☀️", "🌙"];
   openModal(`
     <h2>${tp ? "Sửa chủ đề" : isOwner() ? "Thêm chủ đề" : "Đề xuất chủ đề"}</h2>
     ${!isOwner() ? `<p class="muted" style="margin-top:0">Chủ nhóm sẽ duyệt trước khi chủ đề xuất hiện.</p>` : ""}
@@ -713,7 +713,7 @@ function openTopicModal(id) {
     <label class="f">Biểu tượng</label>
     <div class="row">${icons.map((i) => `<button class="icon-btn" style="font-size:22px" data-act="pick-icon" data-i="${i}">${i}</button>`).join("")}</div>
     <input class="in" id="tp-icon" maxlength="8" value="${esc(tp?.icon || "⭐")}" style="margin-top:8px;width:90px" />
-    <label class="f">Màu</label><input type="color" id="tp-color" value="${esc(tp?.color || "#1f6fe5")}" />
+    <label class="f">Màu</label><input type="color" id="tp-color" value="${esc(tp?.color || "#2f8f3f")}" />
     <div class="foot">
       <button class="btn ghost" data-act="close-modal">Huỷ</button>
       <button class="btn y" id="tp-save">${isOwner() ? "Lưu" : "Gửi đề xuất"}</button>
