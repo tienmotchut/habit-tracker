@@ -1,4 +1,4 @@
-# 🌟 Thói quen nhóm
+# 🌿 Habit Circle
 
 Web theo dõi thói quen cho cả nhóm: tạo & giao task, nộp ảnh/file minh chứng mỗi ngày, xem tiến độ dạng heatmap, chat và duyệt đề xuất. Chạy trên **GitHub Pages** (miễn phí) + **Supabase** (miễn phí) cho đăng nhập, dữ liệu, lưu ảnh và chat realtime.
 
@@ -22,6 +22,7 @@ Web theo dõi thói quen cho cả nhóm: tạo & giao task, nộp ảnh/file min
 ### Bước 2. Tạo cơ sở dữ liệu
 1. Trong project Supabase, menu trái chọn **SQL Editor** → **New query**.
 2. Mở file [`supabase/schema.sql`](supabase/schema.sql) trong repo này, copy **toàn bộ**, dán vào, bấm **Run**. Thấy “Success” là xong.
+3. Nếu bạn đã chạy `schema.sql` **bản tiếng Việt cũ** trước đó, chạy thêm [`supabase/update-english.sql`](supabase/update-english.sql) để đổi tin nhắn hệ thống và tên chủ đề mặc định sang tiếng Anh.
 
 ### Bước 3. Cấu hình đăng nhập
 Menu **Authentication**:

@@ -13,8 +13,9 @@ const today = () => ymd(new Date());
 const addDays = (s, n) => { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
 const mondayOf = (s) => { const d = parseYmd(s); const k = (d.getDay() + 6) % 7; d.setDate(d.getDate() - k); return ymd(d); };
 const tsDay = (ts) => ymd(new Date(ts));
-const WD = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
-const fmtDate = (s) => { const d = parseYmd(s); return `${WD[d.getDay()]}, ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`; };
+const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const fmtDate = (s) => { const d = parseYmd(s); return `${WD[d.getDay()]}, ${MO[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`; };
 const fmtTs = (ts) => { const d = new Date(ts); const sameDay = ymd(d) === today(); return `${pad(d.getHours())}:${pad(d.getMinutes())}${sameDay ? "" : ` · ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`}`; };
 const PALETTE = ["#2f8f3f", "#e0a100", "#3aa676", "#6b8e23", "#d97706", "#0f766e", "#c2410c", "#4d7c0f"];
 const colorFor = (id = "") => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
@@ -57,7 +58,7 @@ const S = {
 
 const isOwner = () => S.me?.role === "owner";
 const prof = (id) => S.profiles.find((p) => p.id === id);
-const nameOf = (id) => prof(id)?.display_name || "Hệ thống";
+const nameOf = (id) => prof(id)?.display_name || "System";
 const members = () => S.profiles.filter((p) => p.approved);
 const topicOf = (id) => S.topics.find((t) => t.id === id);
 const avatar = (id, cls = "") => {
@@ -167,20 +168,20 @@ async function boot(session) {
     if (!me) await new Promise((r) => setTimeout(r, 700));
   }
   S.me = me;
-  if (!me) return renderBlocked("Tài khoản này không có trong nhóm (có thể đã bị từ chối).");
+  if (!me) return renderBlocked("This account is not part of the group (it may have been declined).");
   if (!me.approved) {
-    renderBlocked(`Chào <b>${esc(me.display_name)}</b>! Yêu cầu tham gia của bạn đã được gửi. Chủ nhóm duyệt xong là bạn vào được ngay.`, true);
+    renderBlocked(`Hi <b>${esc(me.display_name)}</b>! Your request to join has been sent. You will get in as soon as the owner approves it.`, true);
     waitTimer = setInterval(async () => {
       const { data } = await sb.from("profiles").select("*").eq("id", S.user.id).maybeSingle();
       if (data?.approved) boot(session);
     }, 10000);
     return;
   }
-  $("#app").innerHTML = `<div class="boot">Đang tải dữ liệu…</div>`;
+  $("#app").innerHTML = `<div class="boot">Loading…</div>`;
   try {
     await loadAll();
   } catch (e) {
-    $("#app").innerHTML = `<div class="auth-wrap"><div class="card auth"><h1>Lỗi tải dữ liệu</h1><p class="muted">${esc(errMsg(e))}</p><p class="muted">Kiểm tra bạn đã chạy file <code>supabase/schema.sql</code> chưa.</p></div></div>`;
+    $("#app").innerHTML = `<div class="auth-wrap"><div class="card auth"><h1>Could not load data</h1><p class="muted">${esc(errMsg(e))}</p><p class="muted">Make sure <code>supabase/schema.sql</code> has been run.</p></div></div>`;
     return;
   }
   subscribe();
@@ -190,19 +191,19 @@ async function boot(session) {
 function renderSetupNeeded() {
   $("#app").innerHTML = `
   <div class="auth-wrap"><div class="card auth" style="max-width:560px">
-    <div class="brand"><div class="logo">TQ</div>${esc(APP_NAME)}</div>
-    <h1>Cần kết nối Supabase</h1>
-    <p class="muted">Mở file <code>js/config.js</code> trong repo GitHub và điền <b>SUPABASE_URL</b> và <b>SUPABASE_ANON_KEY</b> của project Supabase. Xem hướng dẫn chi tiết trong <code>README.md</code>.</p>
+    <div class="brand"><div class="logo">HC</div>${esc(APP_NAME)}</div>
+    <h1>Connect Supabase</h1>
+    <p class="muted">Open <code>js/config.js</code> in the GitHub repo and fill in <b>SUPABASE_URL</b> and <b>SUPABASE_ANON_KEY</b>. See <code>README.md</code> for details.</p>
   </div></div>`;
 }
 
 function renderBlocked(html, canWait = false) {
   $("#app").innerHTML = `
   <div class="auth-wrap"><div class="card auth">
-    <div class="brand"><div class="logo">TQ</div>${esc(APP_NAME)}</div>
-    <h1>${canWait ? "Đang chờ duyệt ⏳" : "Không vào được"}</h1>
+    <div class="brand"><div class="logo">HC</div>${esc(APP_NAME)}</div>
+    <h1>${canWait ? "Awaiting approval ⏳" : "Access denied"}</h1>
     <p class="muted">${html}</p>
-    <button class="btn ghost" data-act="logout">Đăng xuất</button>
+    <button class="btn ghost" data-act="logout">Sign out</button>
   </div></div>`;
 }
 
@@ -210,16 +211,16 @@ function renderAuth(mode = "login") {
   const signup = mode === "signup";
   $("#app").innerHTML = `
   <div class="auth-wrap"><form class="card auth" id="auth-form">
-    <div class="brand"><div class="logo">TQ</div>${esc(APP_NAME)}</div>
-    <h1>${signup ? "Tạo tài khoản" : "Đăng nhập"}</h1>
-    <p class="muted">${signup ? "Người đăng ký đầu tiên sẽ là chủ nhóm (người duy nhất được duyệt)." : "Cùng nhau giữ thói quen mỗi ngày ✨"}</p>
-    ${signup ? `<label class="f">Tên hiển thị</label><input class="in" name="name" required maxlength="40" />` : ""}
+    <div class="brand"><div class="logo">HC</div>${esc(APP_NAME)}</div>
+    <h1>${signup ? "Create account" : "Sign in"}</h1>
+    <p class="muted">${signup ? "The first person to sign up becomes the owner, the only one who can approve." : "Keep good habits, together ✨"}</p>
+    ${signup ? `<label class="f">Display name</label><input class="in" name="name" required maxlength="40" />` : ""}
     <label class="f">Email</label><input class="in" name="email" type="email" required autocomplete="email" />
-    <label class="f">Mật khẩu</label><input class="in" name="password" type="password" required minlength="6" autocomplete="${signup ? "new-password" : "current-password"}" />
+    <label class="f">Password</label><input class="in" name="password" type="password" required minlength="6" autocomplete="${signup ? "new-password" : "current-password"}" />
     <div class="row" style="margin-top:18px">
-      <button class="btn" type="submit">${signup ? "Đăng ký" : "Đăng nhập"}</button>
+      <button class="btn" type="submit">${signup ? "Sign up" : "Sign in"}</button>
       <span class="spacer"></span>
-      <a href="#" data-act="auth-mode" data-mode="${signup ? "login" : "signup"}">${signup ? "Đã có tài khoản? Đăng nhập" : "Chưa có tài khoản? Đăng ký"}</a>
+      <a href="#" data-act="auth-mode" data-mode="${signup ? "login" : "signup"}">${signup ? "Have an account? Sign in" : "New here? Create an account"}</a>
     </div>
     <p class="muted" id="auth-msg" style="margin-bottom:0"></p>
   </form></div>`;
@@ -237,7 +238,7 @@ function renderAuth(mode = "login") {
           options: { data: { display_name: f.get("name").trim() }, emailRedirectTo: location.origin + location.pathname },
         });
         if (error) throw error;
-        if (!data.session) msg.innerHTML = "✅ Đã đăng ký! Mở email để bấm link xác nhận, rồi quay lại đăng nhập.";
+        if (!data.session) msg.innerHTML = "✅ Signed up! Check your email for the confirmation link, then come back to sign in.";
       } else {
         const { error } = await sb.auth.signInWithPassword({ email: f.get("email"), password: f.get("password") });
         if (error) throw error;
@@ -254,22 +255,22 @@ function renderAuth(mode = "login") {
    Khung chính
    ============================================================= */
 const TABS = [
-  ["today", "Hôm nay"],
-  ["progress", "Tiến độ"],
-  ["manage", "Chủ đề & Task"],
-  ["chat", "Chat & Duyệt"],
+  ["today", "Today"],
+  ["progress", "Progress"],
+  ["manage", "Topics & Tasks"],
+  ["chat", "Chat & Approvals"],
 ];
 
 function renderShell() {
   $("#app").innerHTML = `
   <header class="topbar">
-    <div class="brand"><div class="logo">TQ</div><span>${esc(APP_NAME)}</span></div>
+    <div class="brand"><div class="logo">HC</div><span>${esc(APP_NAME)}</span></div>
     <nav class="nav" id="nav"></nav>
     <div class="me">
-      <button class="icon-btn" data-act="toggle-notify" id="bell" title="Nhắc nhở trên trình duyệt"></button>
+      <button class="icon-btn" data-act="toggle-notify" id="bell" title="Browser reminders"></button>
       ${avatar(S.me.id)}
-      <div class="who-txt" style="line-height:1.1"><b>${esc(S.me.display_name)}</b><br><span class="muted" style="font-size:12px">${isOwner() ? "Chủ nhóm" : "Thành viên"}</span></div>
-      <button class="icon-btn" data-act="logout" title="Đăng xuất">⎋</button>
+      <div class="who-txt" style="line-height:1.1"><b>${esc(S.me.display_name)}</b><br><span class="muted" style="font-size:12px">${isOwner() ? "Owner" : "Member"}</span></div>
+      <button class="icon-btn" data-act="logout" title="Sign out">⎋</button>
     </div>
   </header>
   <main id="main"></main>`;
@@ -294,7 +295,7 @@ function render() {
   const unread = unreadCount();
   $("#nav").innerHTML = TABS.map(([k, label]) => {
     let b = "";
-    if (k === "chat" && (pend || unread)) b = `<span class="badge" title="${pend} chờ duyệt, ${unread} tin mới">${pend || ""}${unread ? (pend ? " · " : "") + "💬" + unread : ""}</span>`;
+    if (k === "chat" && (pend || unread)) b = `<span class="badge" title="${pend} pending, ${unread} unread">${pend || ""}${unread ? (pend ? " · " : "") + "💬" + unread : ""}</span>`;
     return `<button class="${S.tab === k ? "active" : ""}" data-act="tab" data-tab="${k}">${label}${b}</button>`;
   }).join("");
   $("#bell").textContent = S.notify ? "🔔" : "🔕";
@@ -331,33 +332,33 @@ function viewToday() {
   const byTopic = S.topics.filter((tp) => tp.status === "approved").map((tp) => ({ tp, list: mine.filter((t) => t.topic_id === tp.id) })).filter((x) => x.list.length);
 
   return `
-  <h1 class="page">${isToday ? "Hôm nay" : fmtDate(day)}</h1>
-  <p class="sub">${isToday ? fmtDate(day) + " · " : ""}Hoàn thành task bằng cách nộp ảnh hoặc file minh chứng.</p>
+  <h1 class="page">${isToday ? "Today" : fmtDate(day)}</h1>
+  <p class="sub">${isToday ? fmtDate(day) + " · " : ""}Complete a task by uploading a photo or file as proof.</p>
   <div class="stats">
-    <div class="stat"><b>${doneMine.length}/${mine.length}</b><span>Task của bạn đã xong</span></div>
-    <div class="stat y"><b>${streakOf(uid)} 🔥</b><span>Chuỗi ngày liên tiếp</span></div>
-    <div class="stat"><b>${gExp ? Math.round((gDone / gExp) * 100) : 0}%</b><span>Cả nhóm hoàn thành</span></div>
-    <div class="stat y"><b>${pendingItems().length}</b><span>Đang chờ duyệt</span></div>
+    <div class="stat"><b>${doneMine.length}/${mine.length}</b><span>Your tasks done</span></div>
+    <div class="stat y"><b>${streakOf(uid)} 🔥</b><span>Day streak</span></div>
+    <div class="stat"><b>${gExp ? Math.round((gDone / gExp) * 100) : 0}%</b><span>Group completion</span></div>
+    <div class="stat y"><b>${pendingItems().length}</b><span>Pending approval</span></div>
   </div>
   <div class="row" style="margin-bottom:16px">
     <div class="date-nav">
       <button class="btn ghost sm" data-act="day" data-d="-1">‹</button>
       <input class="in" type="date" id="day-pick" value="${day}" max="${today()}" />
       <button class="btn ghost sm" data-act="day" data-d="1" ${isToday ? "disabled" : ""}>›</button>
-      ${isToday ? "" : `<button class="btn ghost sm" data-act="day" data-d="0">Hôm nay</button>`}
+      ${isToday ? "" : `<button class="btn ghost sm" data-act="day" data-d="0">Today</button>`}
     </div>
     <span class="spacer"></span>
-    <button class="btn y" data-act="new-task">＋ Tạo / giao task</button>
+    <button class="btn y" data-act="new-task">＋ New / assign task</button>
   </div>
   ${byTopic.length ? `<div class="grid two">${byTopic.map(({ tp, list }) => `
     <div class="card">
       <div class="topic-head">
         <div class="topic-ico" style="background:${esc(tp.color)}22">${esc(tp.icon)}</div>
-        <div><h2>${esc(tp.name)}</h2><span class="muted" style="font-size:13px">${list.filter((t) => checkinOf(t.id, uid, periodOf(t, day))).length}/${list.length} xong</span></div>
+        <div><h2>${esc(tp.name)}</h2><span class="muted" style="font-size:13px">${list.filter((t) => checkinOf(t.id, uid, periodOf(t, day))).length}/${list.length} done</span></div>
       </div>
       ${list.map((t) => taskRow(t, day)).join("")}
     </div>`).join("")}</div>`
-    : `<div class="card empty">Chưa có task nào cho bạn. Bấm “Tạo / giao task” để đề xuất nhé!</div>`}`;
+    : `<div class="card empty">No tasks for you yet. Tap “New / assign task” to propose one!</div>`}`;
 }
 
 function taskRow(t, day) {
@@ -373,7 +374,7 @@ function taskRow(t, day) {
     <div class="body">
       <div class="title">${esc(t.title)}</div>
       <div style="margin:3px 0">
-        <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Hằng tuần" : "Hằng ngày"}</span>
+        <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Weekly" : "Daily"}</span>
         ${t.reminder_time ? `<span class="tag">⏰ ${t.reminder_time.slice(0, 5)}</span>` : ""}
         ${t.assignee_id ? `<span class="tag y">👤 ${esc(nameOf(t.assignee_id))}</span>` : ""}
       </div>
@@ -382,19 +383,19 @@ function taskRow(t, day) {
         <div class="row" style="margin-top:8px">
           ${proofHtml(c)}
           <div style="flex:1;min-width:120px">${c.note ? `<div style="font-size:13px">“${esc(c.note)}”</div>` : ""}
-            <div class="time">${t.frequency === "weekly" ? "Xong ngày " + fmtDate(c.done_on) : "Đã nộp " + fmtTs(c.created_at)}</div></div>
-          <button class="btn danger sm" data-act="undo" data-id="${c.id}">Huỷ</button>
+            <div class="time">${t.frequency === "weekly" ? "Done on " + fmtDate(c.done_on) : "Submitted " + fmtTs(c.created_at)}</div></div>
+          <button class="btn danger sm" data-act="undo" data-id="${c.id}">Undo</button>
         </div>`
-      : day < created && t.frequency === "daily" ? `<div class="muted" style="font-size:13px;margin-top:6px">Task chưa tồn tại vào ngày này</div>`
-      : `<button class="btn sm" style="margin-top:8px" data-act="submit-proof" data-id="${t.id}">📎 Nộp ảnh / file minh chứng</button>`}
-      ${peers.length ? `<div class="peers"><span class="muted" style="font-size:12px;margin-right:4px">Đã xong:</span>${peers.map((x) => `<span data-act="view-proof" data-id="${x.c.id}">${avatar(x.m.id, "sm")}</span>`).join("")}</div>` : ""}
+      : day < created && t.frequency === "daily" ? `<div class="muted" style="font-size:13px;margin-top:6px">This task did not exist yet on this day</div>`
+      : `<button class="btn sm" style="margin-top:8px" data-act="submit-proof" data-id="${t.id}">📎 Upload proof</button>`}
+      ${peers.length ? `<div class="peers"><span class="muted" style="font-size:12px;margin-right:4px">Done:</span>${peers.map((x) => `<span data-act="view-proof" data-id="${x.c.id}">${avatar(x.m.id, "sm")}</span>`).join("")}</div>` : ""}
     </div>
   </div>`;
 }
 
 function proofHtml(c) {
   if (!c.proof_path) return "";
-  if (isImage(c.proof_name || c.proof_path)) return `<img class="proof-thumb" data-proof="${esc(c.proof_path)}" data-act="view-proof" data-id="${c.id}" alt="minh chứng" />`;
+  if (isImage(c.proof_name || c.proof_path)) return `<img class="proof-thumb" data-proof="${esc(c.proof_path)}" data-act="view-proof" data-id="${c.id}" alt="proof" />`;
   return `<button class="file-chip" data-act="view-proof" data-id="${c.id}">📄 ${esc((c.proof_name || "file").slice(0, 24))}</button>`;
 }
 
@@ -449,16 +450,16 @@ function openProofModal(taskId) {
   const t = S.tasks.find((x) => x.id === taskId);
   const day = S.date;
   openModal(`
-    <h2>Nộp minh chứng</h2>
-    <p class="muted" style="margin-top:0">${esc(t.title)} · ${t.frequency === "weekly" ? "tuần bắt đầu " + fmtDate(mondayOf(day)) : fmtDate(day)}</p>
-    <label class="f">Ảnh hoặc file (tối đa 10 MB)</label>
+    <h2>Upload proof</h2>
+    <p class="muted" style="margin-top:0">${esc(t.title)} · ${t.frequency === "weekly" ? "week of " + fmtDate(mondayOf(day)) : fmtDate(day)}</p>
+    <label class="f">Photo or file (max 10 MB)</label>
     <input class="in" type="file" id="proof-file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.mp3,.m4a,.mp4,.mov" />
     <div id="proof-prev" style="margin-top:10px"></div>
-    <label class="f">Ghi chú (không bắt buộc)</label>
-    <textarea class="in" id="proof-note" maxlength="500" placeholder="VD: chạy 5km sáng nay"></textarea>
+    <label class="f">Note (optional)</label>
+    <textarea class="in" id="proof-note" maxlength="500" placeholder="e.g. ran 5 km this morning"></textarea>
     <div class="foot">
-      <button class="btn ghost" data-act="close-modal">Huỷ</button>
-      <button class="btn y" id="proof-go">Hoàn thành ✓</button>
+      <button class="btn ghost" data-act="close-modal">Cancel</button>
+      <button class="btn y" id="proof-go">Mark done ✓</button>
     </div>`);
   $("#proof-file").onchange = (e) => {
     const f = e.target.files[0];
@@ -466,12 +467,12 @@ function openProofModal(taskId) {
   };
   $("#proof-go").onclick = async (e) => {
     let file = $("#proof-file").files[0];
-    if (!file) return toast("Chọn ảnh hoặc file minh chứng trước nhé", true);
+    if (!file) return toast("Please choose a photo or file first", true);
     e.target.disabled = true;
-    e.target.textContent = "Đang tải lên…";
+    e.target.textContent = "Uploading…";
     try {
       file = await compressImage(file);
-      if (file.size > 10 * 1024 * 1024) throw new Error("File lớn hơn 10 MB");
+      if (file.size > 10 * 1024 * 1024) throw new Error("File is larger than 10 MB");
       const period = periodOf(t, day);
       const safe = file.name.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_").slice(-60);
       const path = `${S.me.id}/${period}/${t.id}-${Date.now()}-${safe}`;
@@ -484,12 +485,12 @@ function openProofModal(taskId) {
       if (error) { await sb.storage.from("proofs").remove([path]); throw error; }
       upsertLocal("checkins", data);
       closeModal();
-      toast("Tuyệt! Đã hoàn thành 🎉");
+      toast("Nice! Task done 🎉");
       render();
     } catch (err) {
       toast(errMsg(err), true);
       e.target.disabled = false;
-      e.target.textContent = "Hoàn thành ✓";
+      e.target.textContent = "Mark done ✓";
     }
   };
 }
@@ -498,25 +499,25 @@ async function viewProof(id) {
   const c = S.checkins.find((x) => x.id === id);
   if (!c) return;
   const t = S.tasks.find((x) => x.id === c.task_id);
-  let body = `<p class="muted">Không có file.</p>`;
+  let body = `<p class="muted">No file.</p>`;
   if (c.proof_path) {
     try {
       const url = await signedUrl(c.proof_path);
       body = isImage(c.proof_name || c.proof_path)
         ? `<a href="${esc(url)}" target="_blank" rel="noopener"><img class="preview" src="${esc(url)}" /></a>`
-        : `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">📄 Mở ${esc(c.proof_name || "file")}</a>`;
+        : `<a class="btn" href="${esc(url)}" target="_blank" rel="noopener">📄 Open ${esc(c.proof_name || "file")}</a>`;
     } catch (e) { body = `<p class="muted">${esc(errMsg(e))}</p>`; }
   }
   openModal(`
     <div class="row">${avatar(c.user_id)}<div><h2>${esc(nameOf(c.user_id))}</h2><span class="muted">${esc(t?.title || "")} · ${fmtDate(c.done_on)}</span></div></div>
     <div style="margin-top:14px">${body}</div>
     ${c.note ? `<p>“${esc(c.note)}”</p>` : ""}
-    <div class="foot"><button class="btn ghost" data-act="close-modal">Đóng</button></div>`);
+    <div class="foot"><button class="btn ghost" data-act="close-modal">Close</button></div>`);
 }
 
 async function undoCheckin(id) {
   const c = S.checkins.find((x) => x.id === id);
-  if (!c || !confirm("Huỷ hoàn thành task này? File minh chứng sẽ bị xoá.")) return;
+  if (!c || !confirm("Undo this completion? The proof file will be deleted.")) return;
   const { error } = await sb.from("checkins").delete().eq("id", id);
   if (error) return toast(errMsg(error), true);
   if (c.proof_path) await sb.storage.from("proofs").remove([c.proof_path]);
@@ -570,11 +571,11 @@ function heatmap(uid, topicId, weeks) {
       const s = dayStats(uid, d, topicId);
       const lv = levelOf(s);
       if (s) total += s.done;
-      const tip = `${fmtDate(d)}: ${s ? `${s.done}/${s.expected} task` : "chưa tham gia"}`;
+      const tip = `${fmtDate(d)}: ${s ? `${s.done}/${s.expected} task` : "not joined yet"}`;
       cells += `<i class="l${lv}${d === end ? " today" : ""}" title="${esc(tip)}"></i>`;
     }
   }
-  return { html: `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="hm-days"><span>T2</span><span></span><span>T4</span><span></span><span>T6</span><span></span><span>CN</span></div><div class="hm-wrap"><div class="hm">${cells}</div></div></div>`, total };
+  return { html: `<div class="row" style="align-items:flex-start;flex-wrap:nowrap"><div class="hm-days"><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span><span>Sun</span></div><div class="hm-wrap"><div class="hm">${cells}</div></div></div>`, total };
 }
 
 function bestStreak(uid) {
@@ -590,23 +591,23 @@ function viewProgress() {
   const ranked = ms.map((m) => ({ m, r: weekRate(m.id, tp) })).sort((a, b) => b.r - a.r);
   const topics = S.topics.filter((t) => t.status === "approved");
   return `
-  <h1 class="page">Tiến độ nhóm</h1>
-  <p class="sub">Mỗi ô là một ngày. Càng đậm càng làm được nhiều task, ô vàng là hoàn thành 100%.</p>
+  <h1 class="page">Group progress</h1>
+  <p class="sub">Each square is one day. Darker means more tasks done; gold means 100%.</p>
   <div class="row" style="margin-bottom:16px">
     <div class="pills">
-      <button class="${tp === "all" ? "active" : ""}" data-act="prog-topic" data-id="all">Tất cả</button>
+      <button class="${tp === "all" ? "active" : ""}" data-act="prog-topic" data-id="all">All</button>
       ${topics.map((t) => `<button class="${tp === t.id ? "active" : ""}" data-act="prog-topic" data-id="${t.id}">${esc(t.icon)} ${esc(t.name)}</button>`).join("")}
     </div>
     <span class="spacer"></span>
     <div class="pills">
-      ${[12, 20, 26].map((w) => `<button class="${S.progWeeks === w ? "active" : ""}" data-act="prog-weeks" data-w="${w}">${w} tuần</button>`).join("")}
+      ${[12, 20, 26].map((w) => `<button class="${S.progWeeks === w ? "active" : ""}" data-act="prog-weeks" data-w="${w}">${w} weeks</button>`).join("")}
     </div>
   </div>
   <div class="card" style="margin-bottom:16px">
-    <h2 style="margin-bottom:6px">🏆 Tuần này</h2>
+    <h2 style="margin-bottom:6px">🏆 This week</h2>
     ${ranked.map(({ m, r }, i) => `
       <div class="rank"><span class="n">${i === 0 && r > 0 ? "🥇" : i === 1 && r > 0 ? "🥈" : i === 2 && r > 0 ? "🥉" : i + 1}</span>${avatar(m.id)}
-        <b>${esc(m.display_name)}${m.id === S.me.id ? " (bạn)" : ""}</b>
+        <b>${esc(m.display_name)}${m.id === S.me.id ? " (you)" : ""}</b>
         <div class="bar"><div style="width:${r}%"></div></div><b style="text-align:right">${r}%</b></div>`).join("")}
   </div>
   ${ms.map((m) => {
@@ -616,25 +617,25 @@ function viewProgress() {
       <div class="row" style="margin-bottom:12px">
         ${avatar(m.id)}<h2>${esc(m.display_name)}</h2>
         <span class="spacer"></span>
-        <span class="tag y">🔥 ${streakOf(m.id)} ngày</span>
-        <span class="tag">Kỷ lục ${bestStreak(m.id)} ngày</span>
-        <span class="tag">${h.total} lần hoàn thành</span>
+        <span class="tag y">🔥 ${streakOf(m.id)} days</span>
+        <span class="tag">Best ${bestStreak(m.id)} days</span>
+        <span class="tag">${h.total} completions</span>
       </div>
       ${h.html}
     </div>`;
   }).join("")}
-  <div class="legend">Ít <i style="background:var(--h0)"></i><i style="background:var(--h1)"></i><i style="background:var(--h2)"></i><i style="background:var(--h3)"></i><i style="background:var(--h4)"></i> 100%</div>`;
+  <div class="legend">Less <i style="background:var(--h0)"></i><i style="background:var(--h1)"></i><i style="background:var(--h2)"></i><i style="background:var(--h3)"></i><i style="background:var(--h4)"></i> 100%</div>`;
 }
 
 /* =============================================================
    Tab: Chủ đề & Task
    ============================================================= */
-const STATUS_TAG = { pending: `<span class="tag p">Chờ duyệt</span>`, rejected: `<span class="tag r">Bị từ chối</span>`, approved: "" };
+const STATUS_TAG = { pending: `<span class="tag p">Pending</span>`, rejected: `<span class="tag r">Declined</span>`, approved: "" };
 
 function approveBtns(type, id) {
   if (!isOwner()) return "";
-  return `<button class="btn ok sm" data-act="approve" data-type="${type}" data-id="${id}">Duyệt</button>
-          <button class="btn danger sm" data-act="reject" data-type="${type}" data-id="${id}">Từ chối</button>`;
+  return `<button class="btn ok sm" data-act="approve" data-type="${type}" data-id="${id}">Approve</button>
+          <button class="btn danger sm" data-act="reject" data-type="${type}" data-id="${id}">Decline</button>`;
 }
 
 function viewManage() {
@@ -644,17 +645,17 @@ function viewManage() {
   const topics = S.topics.filter((tp) => f === "all" || (f === "pending" && (tp.status === "pending" || S.tasks.some((t) => t.topic_id === tp.id && t.status === "pending"))) || (f === "mine" && S.tasks.some((t) => t.topic_id === tp.id && taskOk(t))));
   const canEdit = (x) => isOwner() || x.created_by === uid;
   return `
-  <h1 class="page">Chủ đề & Task</h1>
-  <p class="sub">${isOwner() ? "Bạn là chủ nhóm: mọi thứ bạn tạo được duyệt ngay, đề xuất của thành viên chờ bạn duyệt." : "Bạn có thể đề xuất chủ đề, tạo và giao task cho người khác. Chủ nhóm sẽ duyệt."}</p>
+  <h1 class="page">Topics & Tasks</h1>
+  <p class="sub">${isOwner() ? "You are the owner: anything you create is approved instantly, and members' proposals wait for you." : "You can propose topics, create tasks and assign them to anyone. The owner approves them."}</p>
   <div class="row" style="margin-bottom:16px">
     <div class="pills">
-      <button class="${f === "all" ? "active" : ""}" data-act="mfilter" data-f="all">Tất cả</button>
-      <button class="${f === "pending" ? "active" : ""}" data-act="mfilter" data-f="pending">Chờ duyệt (${S.topics.filter((t) => t.status === "pending").length + S.tasks.filter((t) => t.status === "pending").length})</button>
-      <button class="${f === "mine" ? "active" : ""}" data-act="mfilter" data-f="mine">Của tôi</button>
+      <button class="${f === "all" ? "active" : ""}" data-act="mfilter" data-f="all">All</button>
+      <button class="${f === "pending" ? "active" : ""}" data-act="mfilter" data-f="pending">Pending (${S.topics.filter((t) => t.status === "pending").length + S.tasks.filter((t) => t.status === "pending").length})</button>
+      <button class="${f === "mine" ? "active" : ""}" data-act="mfilter" data-f="mine">Mine</button>
     </div>
     <span class="spacer"></span>
-    <button class="btn ghost" data-act="ics-all">📅 Thêm nhắc nhở vào lịch</button>
-    <button class="btn ghost" data-act="new-topic">＋ ${isOwner() ? "Chủ đề" : "Đề xuất chủ đề"}</button>
+    <button class="btn ghost" data-act="ics-all">📅 Add reminders to calendar</button>
+    <button class="btn ghost" data-act="new-topic">＋ ${isOwner() ? "Topic" : "Propose topic"}</button>
     <button class="btn y" data-act="new-task">＋ Task</button>
   </div>
   <div class="grid two">
@@ -665,28 +666,28 @@ function viewManage() {
       <div class="topic-head">
         <div class="topic-ico" style="background:${esc(tp.color)}22">${esc(tp.icon)}</div>
         <div style="flex:1 1 150px"><h2>${esc(tp.name)} ${STATUS_TAG[tp.status]}</h2>
-          ${tp.created_by ? `<span class="muted" style="font-size:12px">bởi ${esc(nameOf(tp.created_by))}</span>` : ""}</div>
+          ${tp.created_by ? `<span class="muted" style="font-size:12px">by ${esc(nameOf(tp.created_by))}</span>` : ""}</div>
         <div class="row acts">${tp.status === "pending" ? approveBtns("topic", tp.id) : ""}
-        ${canEdit(tp) ? `<button class="icon-btn" data-act="edit-topic" data-id="${tp.id}" title="Sửa">✏️</button>` : ""}
-        ${isOwner() || (tp.created_by === uid && tp.status === "pending") ? `<button class="icon-btn" data-act="del-topic" data-id="${tp.id}" title="Xoá">🗑️</button>` : ""}</div>
+        ${canEdit(tp) ? `<button class="icon-btn" data-act="edit-topic" data-id="${tp.id}" title="Edit">✏️</button>` : ""}
+        ${isOwner() || (tp.created_by === uid && tp.status === "pending") ? `<button class="icon-btn" data-act="del-topic" data-id="${tp.id}" title="Delete">🗑️</button>` : ""}</div>
       </div>
       ${list.map((t) => `
         <div class="task-line ${t.status === "rejected" ? "faded" : ""}">
           <div style="flex:1 1 200px;min-width:0">
             <b>${esc(t.title)}</b> ${STATUS_TAG[t.status]}<br>
-            <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Hằng tuần" : "Hằng ngày"}</span>
+            <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Weekly" : "Daily"}</span>
             ${t.reminder_time ? `<span class="tag">⏰ ${t.reminder_time.slice(0, 5)}</span>` : ""}
-            <span class="tag y">👤 ${t.assignee_id ? esc(nameOf(t.assignee_id)) : "Cả nhóm"}</span>
-            ${t.created_by ? `<span class="muted" style="font-size:12px">· tạo bởi ${esc(nameOf(t.created_by))}</span>` : ""}
+            <span class="tag y">👤 ${t.assignee_id ? esc(nameOf(t.assignee_id)) : "Everyone"}</span>
+            ${t.created_by ? `<span class="muted" style="font-size:12px">· created by ${esc(nameOf(t.created_by))}</span>` : ""}
           </div>
           <div class="row acts">${t.status === "pending" ? approveBtns("task", t.id) : ""}
-          ${t.reminder_time && t.status === "approved" ? `<button class="icon-btn" data-act="ics" data-id="${t.id}" title="Thêm nhắc nhở vào lịch">📅</button>` : ""}
-          ${canEdit(t) ? `<button class="icon-btn" data-act="edit-task" data-id="${t.id}" title="Sửa">✏️</button>` : ""}
-          ${isOwner() || (t.created_by === uid && t.status === "pending") ? `<button class="icon-btn" data-act="del-task" data-id="${t.id}" title="Xoá">🗑️</button>` : ""}</div>
-        </div>`).join("") || `<div class="muted" style="font-size:14px">Chưa có task.</div>`}
-      ${tp.status !== "rejected" ? `<button class="btn ghost sm" style="margin-top:10px" data-act="new-task" data-topic="${tp.id}">＋ Task trong chủ đề này</button>` : ""}
+          ${t.reminder_time && t.status === "approved" ? `<button class="icon-btn" data-act="ics" data-id="${t.id}" title="Add reminder to calendar">📅</button>` : ""}
+          ${canEdit(t) ? `<button class="icon-btn" data-act="edit-task" data-id="${t.id}" title="Edit">✏️</button>` : ""}
+          ${isOwner() || (t.created_by === uid && t.status === "pending") ? `<button class="icon-btn" data-act="del-task" data-id="${t.id}" title="Delete">🗑️</button>` : ""}</div>
+        </div>`).join("") || `<div class="muted" style="font-size:14px">No tasks yet.</div>`}
+      ${tp.status !== "rejected" ? `<button class="btn ghost sm" style="margin-top:10px" data-act="new-task" data-topic="${tp.id}">＋ Task in this topic</button>` : ""}
     </div>`;
-  }).join("") || `<div class="card empty">Không có gì ở đây.</div>`}
+  }).join("") || `<div class="card empty">Nothing here.</div>`}
   </div>
   ${isOwner() ? membersCard() : ""}`;
 }
@@ -694,11 +695,11 @@ function viewManage() {
 function membersCard() {
   return `
   <div class="card" style="margin-top:16px">
-    <h2 style="margin-bottom:8px">👥 Thành viên</h2>
+    <h2 style="margin-bottom:8px">👥 Members</h2>
     ${S.profiles.map((p) => `
       <div class="task-line">
-        ${avatar(p.id)}<div style="flex:1"><b>${esc(p.display_name)}</b> ${p.role === "owner" ? `<span class="tag y">Chủ nhóm</span>` : ""} ${p.approved ? "" : `<span class="tag p">Chờ duyệt</span>`}</div>
-        ${!p.approved ? approveBtns("member", p.id) : p.role !== "owner" ? `<button class="btn danger sm" data-act="reject" data-type="member" data-id="${p.id}">Xoá khỏi nhóm</button>` : ""}
+        ${avatar(p.id)}<div style="flex:1"><b>${esc(p.display_name)}</b> ${p.role === "owner" ? `<span class="tag y">Owner</span>` : ""} ${p.approved ? "" : `<span class="tag p">Pending</span>`}</div>
+        ${!p.approved ? approveBtns("member", p.id) : p.role !== "owner" ? `<button class="btn danger sm" data-act="reject" data-type="member" data-id="${p.id}">Remove</button>` : ""}
       </div>`).join("")}
   </div>`;
 }
@@ -707,26 +708,26 @@ function openTopicModal(id) {
   const tp = id ? S.topics.find((t) => t.id === id) : null;
   const icons = ["💪", "🏃", "🧘", "🚴", "🏊", "💧", "🥗", "🍎", "😴", "🀄", "📚", "✍️", "🎧", "💼", "💻", "📈", "💰", "👨‍👩‍👧", "📞", "❤️", "🙏", "🌱", "🧹", "🎨", "🎵", "📵", "☀️", "🌙"];
   openModal(`
-    <h2>${tp ? "Sửa chủ đề" : isOwner() ? "Thêm chủ đề" : "Đề xuất chủ đề"}</h2>
-    ${!isOwner() ? `<p class="muted" style="margin-top:0">Chủ nhóm sẽ duyệt trước khi chủ đề xuất hiện.</p>` : ""}
-    <label class="f">Tên chủ đề</label><input class="in" id="tp-name" maxlength="60" value="${esc(tp?.name || "")}" />
-    <label class="f">Biểu tượng</label>
+    <h2>${tp ? "Edit topic" : isOwner() ? "New topic" : "Propose a topic"}</h2>
+    ${!isOwner() ? `<p class="muted" style="margin-top:0">The owner will review it before it goes live.</p>` : ""}
+    <label class="f">Topic name</label><input class="in" id="tp-name" maxlength="60" value="${esc(tp?.name || "")}" />
+    <label class="f">Icon</label>
     <div class="row">${icons.map((i) => `<button class="icon-btn" style="font-size:22px" data-act="pick-icon" data-i="${i}">${i}</button>`).join("")}</div>
     <input class="in" id="tp-icon" maxlength="8" value="${esc(tp?.icon || "⭐")}" style="margin-top:8px;width:90px" />
-    <label class="f">Màu</label><input type="color" id="tp-color" value="${esc(tp?.color || "#2f8f3f")}" />
+    <label class="f">Color</label><input type="color" id="tp-color" value="${esc(tp?.color || "#2f8f3f")}" />
     <div class="foot">
-      <button class="btn ghost" data-act="close-modal">Huỷ</button>
-      <button class="btn y" id="tp-save">${isOwner() ? "Lưu" : "Gửi đề xuất"}</button>
+      <button class="btn ghost" data-act="close-modal">Cancel</button>
+      <button class="btn y" id="tp-save">${isOwner() ? "Save" : "Send proposal"}</button>
     </div>`);
   $("#tp-save").onclick = async () => {
     const row = { name: $("#tp-name").value.trim(), icon: $("#tp-icon").value.trim() || "⭐", color: $("#tp-color").value };
-    if (!row.name) return toast("Nhập tên chủ đề", true);
+    if (!row.name) return toast("Enter a topic name", true);
     const q = tp ? sb.from("topics").update(row).eq("id", tp.id) : sb.from("topics").insert(row);
     const { data, error } = await q.select().single();
     if (error) return toast(errMsg(error), true);
     upsertLocal("topics", data);
     closeModal();
-    toast(data.status === "pending" ? "Đã gửi đề xuất, chờ chủ nhóm duyệt" : "Đã lưu");
+    toast(data.status === "pending" ? "Proposal sent, waiting for the owner" : "Saved");
     render();
   };
 }
@@ -737,29 +738,29 @@ function openTaskModal(id, topicId) {
   const sel = t?.topic_id || topicId || topics[0]?.id;
   const freq = t?.frequency || "daily";
   openModal(`
-    <h2>${t ? "Sửa task" : "Tạo task"}</h2>
-    ${!isOwner() ? `<p class="muted" style="margin-top:0">Task ${t ? "sau khi sửa" : "mới"} sẽ chờ chủ nhóm duyệt.</p>` : ""}
-    <label class="f">Tên task</label><input class="in" id="tk-title" maxlength="100" value="${esc(t?.title || "")}" placeholder="VD: Chạy bộ 3km" />
-    <label class="f">Mô tả / cách chứng minh</label><textarea class="in" id="tk-desc" maxlength="500" placeholder="VD: Chụp ảnh màn hình app chạy bộ">${esc(t?.description || "")}</textarea>
+    <h2>${t ? "Edit task" : "New task"}</h2>
+    ${!isOwner() ? `<p class="muted" style="margin-top:0">${t ? "Edited tasks" : "New tasks"} wait for the owner's approval.</p>` : ""}
+    <label class="f">Task name</label><input class="in" id="tk-title" maxlength="100" value="${esc(t?.title || "")}" placeholder="e.g. Run 3 km" />
+    <label class="f">Description / how to prove it</label><textarea class="in" id="tk-desc" maxlength="500" placeholder="e.g. Screenshot from your running app">${esc(t?.description || "")}</textarea>
     <div class="row" style="align-items:flex-start">
-      <div style="flex:1;min-width:180px"><label class="f">Chủ đề</label>
-        <select class="in" id="tk-topic">${topics.map((tp) => `<option value="${tp.id}" ${tp.id === sel ? "selected" : ""}>${esc(tp.icon)} ${esc(tp.name)}${tp.status === "pending" ? " (chờ duyệt)" : ""}</option>`).join("")}</select></div>
-      <div style="flex:1;min-width:180px"><label class="f">Giao cho</label>
-        <select class="in" id="tk-assignee"><option value="">👥 Cả nhóm</option>${members().map((m) => `<option value="${m.id}" ${t?.assignee_id === m.id ? "selected" : ""}>${esc(m.display_name)}${m.id === S.me.id ? " (tôi)" : ""}</option>`).join("")}</select></div>
+      <div style="flex:1;min-width:180px"><label class="f">Topic</label>
+        <select class="in" id="tk-topic">${topics.map((tp) => `<option value="${tp.id}" ${tp.id === sel ? "selected" : ""}>${esc(tp.icon)} ${esc(tp.name)}${tp.status === "pending" ? " (pending)" : ""}</option>`).join("")}</select></div>
+      <div style="flex:1;min-width:180px"><label class="f">Assign to</label>
+        <select class="in" id="tk-assignee"><option value="">👥 Everyone</option>${members().map((m) => `<option value="${m.id}" ${t?.assignee_id === m.id ? "selected" : ""}>${esc(m.display_name)}${m.id === S.me.id ? " (me)" : ""}</option>`).join("")}</select></div>
     </div>
-    <label class="f">Lặp lại</label>
+    <label class="f">Repeat</label>
     <div class="seg">
-      <label><input type="radio" name="tk-freq" value="daily" ${freq === "daily" ? "checked" : ""}><span>Hằng ngày (daily)</span></label>
-      <label><input type="radio" name="tk-freq" value="weekly" ${freq === "weekly" ? "checked" : ""}><span>Hằng tuần (weekly)</span></label>
+      <label><input type="radio" name="tk-freq" value="daily" ${freq === "daily" ? "checked" : ""}><span>Daily</span></label>
+      <label><input type="radio" name="tk-freq" value="weekly" ${freq === "weekly" ? "checked" : ""}><span>Weekly</span></label>
     </div>
-    <label class="f">Nhắc nhở lúc</label>
+    <label class="f">Reminder at</label>
     <div class="row"><input class="in" type="time" id="tk-rem" value="${esc(t?.reminder_time?.slice(0, 5) || "")}" style="width:140px" />
-      <span class="muted" style="font-size:13px">Để trống nếu không cần nhắc</span></div>
+      <span class="muted" style="font-size:13px">Leave empty for no reminder</span></div>
     <div class="foot">
-      ${t && t.reminder_time ? `<button class="btn ghost" data-act="ics" data-id="${t.id}">📅 Thêm vào lịch</button>` : ""}
+      ${t && t.reminder_time ? `<button class="btn ghost" data-act="ics" data-id="${t.id}">📅 Add to calendar</button>` : ""}
       <span class="spacer"></span>
-      <button class="btn ghost" data-act="close-modal">Huỷ</button>
-      <button class="btn y" id="tk-save">${isOwner() ? "Lưu" : "Gửi duyệt"}</button>
+      <button class="btn ghost" data-act="close-modal">Cancel</button>
+      <button class="btn y" id="tk-save">${isOwner() ? "Save" : "Submit for approval"}</button>
     </div>`);
   $("#tk-save").onclick = async () => {
     const row = {
@@ -770,14 +771,14 @@ function openTaskModal(id, topicId) {
       frequency: document.querySelector("input[name=tk-freq]:checked").value,
       reminder_time: $("#tk-rem").value || null,
     };
-    if (!row.title) return toast("Nhập tên task", true);
-    if (!row.topic_id) return toast("Chọn chủ đề", true);
+    if (!row.title) return toast("Enter a task name", true);
+    if (!row.topic_id) return toast("Choose a topic", true);
     const q = t ? sb.from("tasks").update(row).eq("id", t.id) : sb.from("tasks").insert(row);
     const { data, error } = await q.select().single();
     if (error) return toast(errMsg(error), true);
     upsertLocal("tasks", data);
     closeModal();
-    toast(data.status === "pending" ? "Đã gửi, chờ chủ nhóm duyệt" : "Đã lưu");
+    toast(data.status === "pending" ? "Submitted, waiting for the owner" : "Saved");
     render();
   };
 }
@@ -790,7 +791,7 @@ async function setStatus(type, id, approve) {
       if (error) return toast(errMsg(error), true);
       upsertLocal("profiles", { ...p, approved: true });
     } else {
-      if (!confirm(`Xoá ${p?.display_name} khỏi nhóm?`)) return;
+      if (!confirm(`Remove ${p?.display_name} from the group?`)) return;
       const { error } = await sb.from("profiles").delete().eq("id", id);
       if (error) return toast(errMsg(error), true);
       removeLocal("profiles", id);
@@ -801,12 +802,12 @@ async function setStatus(type, id, approve) {
     if (error) return toast(errMsg(error), true);
     upsertLocal(table, data);
   }
-  toast(approve ? "Đã duyệt ✅" : "Đã từ chối");
+  toast(approve ? "Approved ✅" : "Declined");
   render();
 }
 
 async function del(table, id) {
-  if (!confirm(table === "topics" ? "Xoá chủ đề này và toàn bộ task trong đó?" : "Xoá task này?")) return;
+  if (!confirm(table === "topics" ? "Delete this topic and all of its tasks?" : "Delete this task?")) return;
   const { error } = await sb.from(table).delete().eq("id", id);
   if (error) return toast(errMsg(error), true);
   removeLocal(table, id);
@@ -834,43 +835,43 @@ function msgHtml(m) {
   }
   const ref = m.ref_type ? refInfo(m.ref_type, m.ref_id) : null;
   const status = ref ? ref.status : "deleted";
-  const tag = status === "pending" ? `<span class="tag p">Chờ duyệt</span>` : status === "approved" ? `<span class="tag" style="background:#dcfce7;color:#15803d">Đã duyệt</span>` : status === "rejected" ? `<span class="tag r">Bị từ chối</span>` : `<span class="tag">Đã xoá</span>`;
-  const extra = m.ref_type === "task" && ref?.x ? `<div class="muted" style="font-size:13px;margin-top:4px">${esc(topicOf(ref.x.topic_id)?.icon || "")} ${esc(topicOf(ref.x.topic_id)?.name || "")} · ${ref.x.frequency === "weekly" ? "hằng tuần" : "hằng ngày"}${ref.x.reminder_time ? " · ⏰ " + ref.x.reminder_time.slice(0, 5) : ""}</div>` : "";
+  const tag = status === "pending" ? `<span class="tag p">Pending</span>` : status === "approved" ? `<span class="tag" style="background:#dcfce7;color:#15803d">Approved</span>` : status === "rejected" ? `<span class="tag r">Declined</span>` : `<span class="tag">Deleted</span>`;
+  const extra = m.ref_type === "task" && ref?.x ? `<div class="muted" style="font-size:13px;margin-top:4px">${esc(topicOf(ref.x.topic_id)?.icon || "")} ${esc(topicOf(ref.x.topic_id)?.name || "")} · ${ref.x.frequency === "weekly" ? "weekly" : "daily"}${ref.x.reminder_time ? " · ⏰ " + ref.x.reminder_time.slice(0, 5) : ""}</div>` : "";
   return `<div class="sysmsg"><div class="box">
     ${m.kind === "join" ? "🙋" : "💡"} <b>${esc(nameOf(m.user_id))}</b> ${esc(m.content)} <span class="time">${fmtTs(m.created_at)}</span>
     ${extra}
     <div class="acts">${tag}${status === "pending" ? approveBtns(m.ref_type, m.ref_id) : ""}
-      ${m.ref_type === "task" && ref?.x && (isOwner() || ref.x.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${m.ref_id}">Xem / sửa</button>` : ""}</div>
+      ${m.ref_type === "task" && ref?.x && (isOwner() || ref.x.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${m.ref_id}">View / edit</button>` : ""}</div>
   </div></div>`;
 }
 
 function viewChat() {
   const pend = pendingItems();
   return `
-  <h1 class="page">Chat & Duyệt</h1>
-  <p class="sub">Trò chuyện với cả nhóm. Mọi đề xuất chủ đề, task và yêu cầu tham gia đều hiện ở đây${isOwner() ? " để bạn duyệt" : ""}.</p>
+  <h1 class="page">Chat & Approvals</h1>
+  <p class="sub">Talk with the group. Every topic and task proposal and join request shows up here${isOwner() ? " for you to approve" : ""}.</p>
   <div class="chat-layout">
     <div class="card chat">
-      <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">Chưa có tin nhắn nào. Chào cả nhóm đi! 👋</div>`}</div>
+      <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">No messages yet. Say hi! 👋</div>`}</div>
       <form class="chat-form" id="chat-form">
-        <input class="in" id="chat-input" placeholder="Nhắn cho cả nhóm…" maxlength="1000" autocomplete="off" />
-        <button class="btn" type="submit">Gửi</button>
+        <input class="in" id="chat-input" placeholder="Message the group…" maxlength="1000" autocomplete="off" />
+        <button class="btn" type="submit">Send</button>
       </form>
     </div>
     <div>
       <div class="card">
-        <h2 style="margin-bottom:6px">⏳ Đang chờ duyệt <span class="badge">${pend.length}</span></h2>
+        <h2 style="margin-bottom:6px">⏳ Pending approval <span class="badge">${pend.length}</span></h2>
         ${pend.map(({ type, item }) => `
           <div class="pending-item">
-            <div><span class="tag ${type === "member" ? "y" : ""}">${type === "member" ? "Thành viên" : type === "topic" ? "Chủ đề" : "Task"}</span>
+            <div><span class="tag ${type === "member" ? "y" : ""}">${type === "member" ? "Member" : type === "topic" ? "Topic" : "Task"}</span>
               <b>${esc(type === "member" ? item.display_name : type === "topic" ? item.icon + " " + item.name : item.title)}</b></div>
-            <div class="muted" style="font-size:12px;margin:3px 0 6px">${type === "member" ? "xin tham gia" : "đề xuất bởi " + esc(nameOf(item.created_by))}${type === "task" ? " · " + esc(topicOf(item.topic_id)?.name || "") + (item.assignee_id ? " · giao cho " + esc(nameOf(item.assignee_id)) : "") : ""}</div>
-            <div class="row">${isOwner() ? approveBtns(type, item.id) : `<span class="muted" style="font-size:13px">Chờ chủ nhóm duyệt</span>`}
-              ${type === "task" && (isOwner() || item.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${item.id}">Xem</button>` : ""}</div>
-          </div>`).join("") || `<p class="muted">Không có gì cần duyệt 🎉</p>`}
+            <div class="muted" style="font-size:12px;margin:3px 0 6px">${type === "member" ? "wants to join" : "proposed by " + esc(nameOf(item.created_by))}${type === "task" ? " · " + esc(topicOf(item.topic_id)?.name || "") + (item.assignee_id ? " · for " + esc(nameOf(item.assignee_id)) : "") : ""}</div>
+            <div class="row">${isOwner() ? approveBtns(type, item.id) : `<span class="muted" style="font-size:13px">Waiting for the owner</span>`}
+              ${type === "task" && (isOwner() || item.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${item.id}">View</button>` : ""}</div>
+          </div>`).join("") || `<p class="muted">Nothing to approve 🎉</p>`}
       </div>
       <div class="card" style="margin-top:16px">
-        <h2 style="margin-bottom:8px">👥 Hôm nay</h2>
+        <h2 style="margin-bottom:8px">👥 Today</h2>
         ${members().map((m) => {
           const list = tasksFor(m.id);
           const done = list.filter((t) => checkinOf(t.id, m.id, periodOf(t, today()))).length;
@@ -893,7 +894,7 @@ function onNewMessage(m) {
   if (m.user_id === S.user.id) return;
   if (S.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
     const who = nameOf(m.user_id);
-    new Notification(m.kind === "chat" ? `💬 ${who}` : "💡 Cần duyệt", { body: m.kind === "chat" ? m.content : `${who} ${m.content}`, tag: "msg" });
+    new Notification(m.kind === "chat" ? `💬 ${who}` : "💡 Needs approval", { body: m.kind === "chat" ? m.content : `${who} ${m.content}`, tag: "msg" });
   }
 }
 
@@ -902,14 +903,14 @@ function onNewMessage(m) {
    ============================================================= */
 async function toggleNotify() {
   if (!S.notify) {
-    if (!("Notification" in window)) return toast("Trình duyệt này không hỗ trợ thông báo. Dùng nút 📅 để thêm vào lịch điện thoại.", true);
+    if (!("Notification" in window)) return toast("This browser does not support notifications. Use 📅 to add reminders to your calendar.", true);
     const perm = await Notification.requestPermission();
-    if (perm !== "granted") return toast("Bạn chưa cho phép thông báo", true);
+    if (perm !== "granted") return toast("Notifications are not allowed", true);
     S.notify = true;
-    toast("Đã bật nhắc nhở (khi web đang mở). Muốn nhắc cả khi tắt web, dùng 📅 Thêm vào lịch.");
+    toast("Reminders on (while the site is open). For reminders when it is closed, use 📅 Add to calendar.");
   } else {
     S.notify = false;
-    toast("Đã tắt nhắc nhở");
+    toast("Reminders off");
   }
   localStorage.setItem("notify", S.notify ? "1" : "0");
   render();
@@ -930,9 +931,9 @@ function checkReminders() {
     const key = `rem:${t.id}:${d}`;
     if (localStorage.getItem(key)) continue;
     localStorage.setItem(key, "1");
-    toast(`⏰ Đến giờ: ${t.title}`);
+    toast(`⏰ Time for: ${t.title}`);
     if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(`⏰ ${t.title}`, { body: t.description || "Đừng quên nộp minh chứng nhé!", tag: t.id });
+      new Notification(`⏰ ${t.title}`, { body: t.description || "Don't forget to upload your proof!", tag: t.id });
     }
   }
 }
@@ -954,7 +955,7 @@ function icsEvent(t) {
     `DTEND:${f(e)}`,
     `RRULE:FREQ=${t.frequency === "weekly" ? "WEEKLY" : "DAILY"}`,
     `SUMMARY:${clean((topic?.icon || "") + " " + t.title)}`,
-    `DESCRIPTION:${clean((t.description || "") + "\nNộp minh chứng tại: " + location.origin + location.pathname)}`,
+    `DESCRIPTION:${clean((t.description || "") + "\nUpload proof at: " + location.origin + location.pathname)}`,
     "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${clean(t.title)}`, "TRIGGER:PT0M", "END:VALARM",
     "END:VEVENT",
   ].join("\r\n");
@@ -962,14 +963,14 @@ function icsEvent(t) {
 
 function downloadIcs(list, name) {
   const withTime = list.filter((t) => t.reminder_time);
-  if (!withTime.length) return toast("Chưa có task nào đặt giờ nhắc", true);
+  if (!withTime.length) return toast("No tasks have a reminder time", true);
   const body = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//habit-tracker//VI", "CALSCALE:GREGORIAN", ...withTime.map(icsEvent), "END:VCALENDAR"].join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([body], { type: "text/calendar;charset=utf-8" }));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  toast("Mở file .ics vừa tải để thêm nhắc nhở vào lịch");
+  toast("Open the downloaded .ics file to add the reminders");
 }
 
 /* =============================================================
@@ -1001,8 +1002,8 @@ const actions = {
   approve: (d) => setStatus(d.type, d.id, true),
   reject: (d) => setStatus(d.type, d.id, false),
   "pick-icon": (d, el, e) => { e.preventDefault(); $("#tp-icon").value = d.i; },
-  ics: (d) => { const t = S.tasks.find((x) => x.id === d.id); downloadIcs([t], `nhac-${t.title.normalize("NFD").replace(/[^\w]+/g, "-").slice(0, 30)}.ics`); },
-  "ics-all": () => downloadIcs(tasksFor(S.me.id), "nhac-nho-thoi-quen.ics"),
+  ics: (d) => { const t = S.tasks.find((x) => x.id === d.id); downloadIcs([t], `reminder-${t.title.normalize("NFD").replace(/[^\w]+/g, "-").slice(0, 30)}.ics`); },
+  "ics-all": () => downloadIcs(tasksFor(S.me.id), "habit-reminders.ics"),
   "toggle-notify": () => toggleNotify(),
   "close-modal": () => closeModal(),
   "modal-bg": (d, el, e) => { if (e.target === el) closeModal(); },

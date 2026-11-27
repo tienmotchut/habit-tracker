@@ -148,21 +148,21 @@ language plpgsql security definer set search_path = public as $$
 declare
   label text;
   rtype text := case when tg_table_name = 'topics' then 'topic' else 'task' end;
-  noun  text := case when tg_table_name = 'topics' then 'chủ đề' else 'task' end;
+  noun  text := case when tg_table_name = 'topics' then 'topic' else 'task' end;
 begin
   label := coalesce(to_jsonb(new)->>'name', to_jsonb(new)->>'title');
   if new.status = 'pending' and (tg_op = 'INSERT' or old.status <> 'pending') then
     insert into public.messages (user_id, kind, content, ref_type, ref_id)
     values (new.created_by, 'proposal',
-            case when tg_op = 'INSERT' then 'đề xuất ' || noun || ' mới: ' else 'đã sửa ' || noun || ', cần duyệt lại: ' end || label
+            case when tg_op = 'INSERT' then 'proposed a new ' || noun || ': ' else 'edited a ' || noun || ', needs re-approval: ' end || label
               || case when to_jsonb(new)->>'assignee_id' is not null
-                      then ' (giao cho ' || coalesce((select display_name from public.profiles where id = (to_jsonb(new)->>'assignee_id')::uuid), '?') || ')'
+                      then ' (for ' || coalesce((select display_name from public.profiles where id = (to_jsonb(new)->>'assignee_id')::uuid), '?') || ')'
                       else '' end,
             rtype, new.id);
   elsif tg_op = 'UPDATE' and old.status = 'pending' and new.status in ('approved','rejected') then
     insert into public.messages (user_id, kind, content, ref_type, ref_id)
     values (auth.uid(), 'system',
-            case when new.status = 'approved' then '✅ Đã duyệt ' else '❌ Đã từ chối ' end || noun || ': ' || label,
+            case when new.status = 'approved' then '✅ Approved ' else '❌ Declined ' end || noun || ': ' || label,
             rtype, new.id);
   end if;
   return new;
@@ -180,10 +180,10 @@ language plpgsql security definer set search_path = public as $$
 begin
   if tg_op = 'INSERT' and not new.approved then
     insert into public.messages (user_id, kind, content, ref_type, ref_id)
-    values (new.id, 'join', 'xin tham gia nhóm', 'member', new.id);
+    values (new.id, 'join', 'wants to join the group', 'member', new.id);
   elsif tg_op = 'UPDATE' and new.approved and not old.approved then
     insert into public.messages (user_id, kind, content, ref_type, ref_id)
-    values (new.id, 'system', '🎉 ' || new.display_name || ' đã được duyệt vào nhóm', 'member', new.id);
+    values (new.id, 'system', '🎉 ' || new.display_name || ' joined the group', 'member', new.id);
   end if;
   return new;
 end $$;
@@ -292,20 +292,20 @@ end $$;
 insert into public.topics (name, icon, color, status)
 select * from (values
   ('Fitness',                 '💪', '#2f8f3f', 'approved'),
-  ('Uống đủ nước',            '💧', '#3aa676', 'approved'),
-  ('Học tiếng Trung',         '🀄', '#eab308', 'approved'),
-  ('Công việc',               '💼', '#6b8e23', 'approved'),
-  ('Nói chuyện với gia đình', '👨‍👩‍👧', '#f59e0b', 'approved')
+  ('Hydration',               '💧', '#3aa676', 'approved'),
+  ('Learn Chinese',           '🀄', '#eab308', 'approved'),
+  ('Work',                    '💼', '#6b8e23', 'approved'),
+  ('Family time',             '👨‍👩‍👧', '#f59e0b', 'approved')
 ) v where not exists (select 1 from public.topics);
 
 insert into public.tasks (topic_id, title, description, frequency, reminder_time, status)
 select t.id, x.title, x.descr, x.freq, x.rt::time, 'approved'
 from (values
-  ('Fitness',                 'Tập thể dục 30 phút',          'Chụp ảnh lúc tập hoặc màn hình app đếm bước', 'daily',  '18:00'),
-  ('Uống đủ nước',            'Uống đủ 2 lít nước',            'Chụp ảnh bình nước',                         'daily',  '09:00'),
-  ('Học tiếng Trung',         'Học 15 từ mới',                 'Chụp ảnh vở hoặc app học',                   'daily',  '21:00'),
-  ('Công việc',               'Xong việc quan trọng nhất ngày', 'Ảnh màn hình / file kết quả',                'daily',  '17:00'),
-  ('Nói chuyện với gia đình', 'Gọi điện cho gia đình',          'Ảnh màn hình cuộc gọi',                      'weekly', '20:00')
+  ('Fitness',       'Work out for 30 minutes',            'Photo of your workout or a step-counter screenshot', 'daily',  '18:00'),
+  ('Hydration',     'Drink 2 liters of water',            'Photo of your water bottle',                         'daily',  '09:00'),
+  ('Learn Chinese', 'Learn 15 new words',                 'Photo of your notebook or study app',                'daily',  '21:00'),
+  ('Work',          'Finish the most important task',     'Screenshot or result file',                          'daily',  '17:00'),
+  ('Family time',   'Call your family',                   'Screenshot of the call',                             'weekly', '20:00')
 ) as x(topic, title, descr, freq, rt)
 join public.topics t on t.name = x.topic
 where not exists (select 1 from public.tasks);

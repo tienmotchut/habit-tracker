@@ -8,4 +8,4 @@
 export const SUPABASE_URL = "https://fffhjcqyffpnrioybmpj.supabase.co";
 export const SUPABASE_ANON_KEY = "sb_publishable_p5bYV0cTUDOT9mW5izcc0g_7yvV0n2T";
 
-export const APP_NAME = "Thói quen nhóm";
+export const APP_NAME = "Habit Circle";
