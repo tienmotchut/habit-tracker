@@ -339,3 +339,4 @@ h2 { font-size: 24px; }
 }
 .drop:hover, .drop.over { background: #eef6e7; border-color: var(--blue); }
 .drop img.preview { max-height: 260px; width: auto; max-width: 100%; }
+.at-btn { font-size: 18px; padding: 6px 14px; }

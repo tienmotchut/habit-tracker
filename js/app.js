@@ -933,6 +933,7 @@ function viewChat() {
       <form class="chat-form" id="chat-form">
         <div id="mention-pop" class="mention-pop" hidden></div>
         <input class="in" id="chat-input" placeholder="Message the group… type @ to mention someone" maxlength="1000" autocomplete="off" />
+        <button class="btn ghost at-btn" type="button" data-act="mention-open" title="Mention someone">@</button>
         <button class="btn" type="submit">Send</button>
       </form>
     </div>
@@ -1087,6 +1088,16 @@ const actions = {
   "toggle-notify": () => toggleNotify(),
   "close-modal": () => closeModal(),
   "mention-pick": (d, el, e) => { e.preventDefault(); pickMention(d.name); },
+  "mention-open": () => {
+    const inp = $("#chat-input");
+    const pos = inp.selectionStart ?? inp.value.length;
+    const pre = inp.value.slice(0, pos);
+    const ins = (pre && !/\s$/.test(pre) ? " " : "") + "@";
+    inp.value = pre + ins + inp.value.slice(pos);
+    inp.focus();
+    inp.setSelectionRange(pos + ins.length, pos + ins.length);
+    updateMentionPop();
+  },
   "modal-bg": (d, el, e) => { if (e.target === el) closeModal(); },
 };
 
