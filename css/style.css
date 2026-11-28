@@ -345,3 +345,26 @@ h2 { font-size: 24px; }
 .brand img.logo { width: 40px; height: 40px; border-radius: 50%; box-shadow: 0 2px 8px rgba(35, 84, 47, .18); background: none; display: block; padding: 0; }
 .auth .brand img.logo { width: 46px; height: 46px; }
 .bubble .acts { display: flex; gap: 6px; margin: 8px 0 0 !important; flex-wrap: wrap; align-items: center; white-space: normal; }
+
+/* ---------- Hộp thông báo ---------- */
+.icon-btn.bell { position: relative; }
+.bell-count {
+  position: absolute; top: -2px; right: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px;
+  background: #c9a227; color: #fff; font-size: 10.5px; font-weight: 500; display: grid; place-items: center; line-height: 1;
+}
+.inbox-bg { place-items: start end; padding: 70px 18px 18px; background: rgba(27, 46, 31, .12); }
+.inbox {
+  width: 100%; max-width: 380px; max-height: calc(100vh - 100px); overflow-y: auto; background: #fbfaf6;
+  border: 1px solid #e9e6dc; border-radius: 18px; padding: 14px; box-shadow: 0 16px 40px rgba(27, 46, 31, .14);
+}
+.inbox-item {
+  display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 10px 8px; border-radius: 12px; cursor: pointer; font-weight: 300; color: #3f4a42; border-top: 1px solid #efece4;
+}
+.inbox-item:first-of-type { border-top: 0; }
+.inbox-item:hover { background: #f1efe9; }
+.inbox-item.new { background: #f4f1e4; }
+.inbox-item .txt { flex: 1; min-width: 0; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.inbox-item .time { display: block; font-size: 11px; color: #8a918a; margin-top: 2px; }
+.inbox-item .emo { filter: grayscale(.75) opacity(.75); }
+@media (max-width: 860px) { .inbox-bg { place-items: start center; padding-top: 60px; } }

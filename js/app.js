@@ -290,7 +290,7 @@ function renderShell() {
     <div class="brand"><img class="logo" src="img/icon.svg" alt="" /><span>${esc(APP_NAME)}</span></div>
     <nav class="nav" id="nav"></nav>
     <div class="me">
-      <button class="icon-btn" data-act="toggle-notify" id="bell" title="Notifications"></button>
+      <button class="icon-btn bell" data-act="inbox" id="bell" title="Notifications"></button>
       ${avatar(S.me.id)}
       <div class="who-txt" style="line-height:1.1"><b>${esc(S.me.display_name)}</b><br><span class="muted" style="font-size:12px">${isOwner() ? "Owner" : "Member"}</span></div>
       <button class="icon-btn" data-act="logout" title="Sign out">⎋</button>
@@ -321,7 +321,7 @@ function render() {
     if (k === "chat" && (pend || unread)) b = `<span class="badge" title="${pend} pending, ${unread} unread">${pend || ""}${unread ? (pend ? " · " : "") + "💬" + unread : ""}</span>`;
     return `<button class="${S.tab === k ? "active" : ""}" data-act="tab" data-tab="${k}">${label}${b}</button>`;
   }).join("");
-  $("#bell").textContent = S.push || S.notify ? "🔔" : "🔕";
+  updateBell();
 
   const main = $("#main");
   if (S.tab === "today") main.innerHTML = viewToday();
@@ -1034,7 +1034,8 @@ function onNewMessage(m) {
     const hit = m.kind === "chat" && mentionsMe(m.content);
     localNotify(hit ? `${who} mentioned you` : m.kind === "chat" ? who : "Needs approval", m.kind === "chat" ? m.content : `${who} ${m.content}`, "msg");
   }
-  if (m.kind === "chat" && mentionsMe(m.content) && S.tab !== "chat") toast(`@ ${nameOf(m.user_id)} mentioned you in chat`);
+  const n = notifOfMessage(m);
+  if (n) toast(n.text.length > 90 ? n.text.slice(0, 88) + "…" : n.text);
 }
 
 /* =============================================================
@@ -1152,7 +1153,74 @@ function openNotifyModal() {
   };
 }
 
+/* =============================================================
+   Hộp thông báo trên web (chữ)
+   ============================================================= */
+function notifOfMessage(m) {
+  const uid = S.me.id;
+  if (m.user_id === uid) return null;
+  const who = nameOf(m.user_id);
+  if (m.kind === "chat" && mentionsMe(m.content)) {
+    const task = m.ref_type === "task" ? S.tasks.find((t) => t.id === m.ref_id) : null;
+    return { id: "m" + m.id, at: m.created_at, who: m.user_id, tab: "chat",
+      text: task ? `${who} assigned you a task: ${task.title}` : `${who} mentioned you: ${m.content.replace(/\s+/g, " ")}` };
+  }
+  if ((m.kind === "proposal" || m.kind === "join") && isOwner())
+    return { id: "m" + m.id, at: m.created_at, who: m.user_id, tab: "chat", text: `${who} ${m.content}` };
+  if (m.kind === "system" && m.ref_id) {
+    let mineRef = false;
+    if (m.ref_type === "member") mineRef = m.ref_id === uid;
+    else if (m.ref_type === "task") mineRef = S.tasks.find((t) => t.id === m.ref_id)?.created_by === uid;
+    else if (m.ref_type === "topic") mineRef = S.topics.find((t) => t.id === m.ref_id)?.created_by === uid;
+    if (mineRef) return { id: "m" + m.id, at: m.created_at, who: m.user_id, tab: m.ref_type === "member" ? "today" : "manage", text: m.content };
+  }
+  return null;
+}
+
+function myNotifs() {
+  const uid = S.me.id;
+  const out = S.messages.map(notifOfMessage).filter(Boolean);
+  const now = new Date();
+  const d = today();
+  for (const t of tasksFor(uid)) {
+    if (!t.reminder_time || !visibleOn(t, uid, d) || checkinOf(t.id, uid, periodOf(t, d))) continue;
+    const [h, mi] = t.reminder_time.split(":").map(Number);
+    const at = parseYmd(d); at.setHours(h, mi, 0, 0);
+    if (at > now) continue;
+    out.push({ id: `r${t.id}${d}`, at: at.toISOString(), tab: "today", reminder: true,
+      text: `Time for: ${t.title}${t.frequency === "once" && t.due_date ? ` (due ${fmtShort(t.due_date)})` : ""}` });
+  }
+  return out.sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 60);
+}
+
+const seenKey = () => "notifSeen:" + S.me.id;
+const unreadNotifs = () => { const seen = localStorage.getItem(seenKey()) || ""; return myNotifs().filter((n) => n.at > seen).length; };
+
+function updateBell() {
+  const b = $("#bell");
+  if (!b) return;
+  const n = unreadNotifs();
+  b.innerHTML = `🔔${n ? `<span class="bell-count">${n > 9 ? "9+" : n}</span>` : ""}`;
+}
+
+function openInbox() {
+  const seen = localStorage.getItem(seenKey()) || "";
+  const list = myNotifs();
+  localStorage.setItem(seenKey(), new Date().toISOString());
+  updateBell();
+  $("#modal-root").innerHTML = `<div class="modal-bg inbox-bg" data-act="modal-bg"><div class="inbox">
+    <div class="row" style="margin-bottom:6px"><h2 style="margin:0">Notifications</h2><span class="spacer"></span>
+      <button class="btn ghost sm" data-act="toggle-notify">Phone alerts: ${S.push ? "on" : "off"}</button></div>
+    ${list.map((n) => `
+      <button class="inbox-item ${n.at > seen ? "new" : ""}" data-act="notif-go" data-tab="${n.tab}">
+        ${n.who ? avatar(n.who, "sm") : `<span class="avatar sm" style="background:#c9a227">⏰</span>`}
+        <span class="txt">${withMentions(n.text)}<span class="time">${fmtTs(n.at)}</span></span>
+      </button>`).join("") || `<p class="muted" style="padding:10px 4px">No notifications yet. You'll see @mentions, assigned tasks, approvals and reminders here.</p>`}
+  </div></div>`;
+}
+
 function checkReminders() {
+  updateBell();
   if (!S.me?.approved) return;
   const now = new Date();
   const hm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -1239,6 +1307,8 @@ const actions = {
   ics: (d) => { const t = S.tasks.find((x) => x.id === d.id); downloadIcs([t], `reminder-${t.title.normalize("NFD").replace(/[^\w]+/g, "-").slice(0, 30)}.ics`); },
   "ics-all": () => downloadIcs(tasksFor(S.me.id), "habit-reminders.ics"),
   "toggle-notify": () => openNotifyModal(),
+  inbox: () => openInbox(),
+  "notif-go": (d) => { closeModal(); S.tab = d.tab; history.replaceState(null, "", "#" + d.tab); if (d.tab === "today") S.date = today(); render(); window.scrollTo(0, 0); },
   "close-modal": () => closeModal(),
   "mention-pick": (d, el, e) => { e.preventDefault(); pickMention(d.name); },
   "mention-open": () => {
