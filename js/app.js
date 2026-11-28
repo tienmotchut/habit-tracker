@@ -127,17 +127,22 @@ async function loadAll() {
     sb.from("messages").select("*").order("id", { ascending: false }).limit(300),
   ]);
   if (msgs.error) throw msgs.error;
-  Object.assign(S, { profiles, topics, tasks, checkins, messages: msgs.data.reverse() });
+  // "Đã xem": bảng chat_reads có thể chưa tồn tại nếu chưa chạy seen.sql -> bỏ qua
+  const reads = await sb.from("chat_reads").select("*");
+  Object.assign(S, { profiles, topics, tasks, checkins, messages: msgs.data.reverse(), chat_reads: reads.error ? [] : reads.data, readsOk: !reads.error });
   S.me = prof(S.user.id) || S.me;
 }
 
+const PK = { chat_reads: "user_id" };
 function upsertLocal(table, row) {
+  const k = PK[table] || "id";
   const arr = S[table];
-  const i = arr.findIndex((x) => x.id === row.id);
+  const i = arr.findIndex((x) => x[k] === row[k]);
   if (i >= 0) arr[i] = row; else arr.push(row);
 }
 function removeLocal(table, id) {
-  S[table] = S[table].filter((x) => x.id !== id);
+  const k = PK[table] || "id";
+  S[table] = S[table].filter((x) => x[k] !== id);
 }
 
 function subscribe() {
@@ -147,7 +152,7 @@ function subscribe() {
     .on("postgres_changes", { event: "*", schema: "public" }, (p) => {
       const table = p.table;
       if (!S[table]) return;
-      if (p.eventType === "DELETE") removeLocal(table, p.old.id);
+      if (p.eventType === "DELETE") removeLocal(table, p.old[PK[table] || "id"]);
       else upsertLocal(table, p.new);
       if (table === "profiles" && p.new?.id === S.user.id) S.me = p.new;
       if (table === "messages" && p.eventType === "INSERT") onNewMessage(p.new);
@@ -313,7 +318,7 @@ function render() {
   const scroller = $(".chat-list");
   const nearBottom = scroller ? scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80 : true;
 
-  if (S.tab === "chat" && S.messages.length) localStorage.setItem("seenMsg:" + S.user.id, S.messages[S.messages.length - 1].id);
+  if (S.tab === "chat" && S.messages.length) { localStorage.setItem("seenMsg:" + S.user.id, S.messages[S.messages.length - 1].id); markRead(); }
   const pend = pendingItems().length;
   const unread = unreadCount();
   $("#nav").innerHTML = TABS.map(([k, label]) => {
@@ -974,6 +979,35 @@ function msgHtml(m) {
   </div></div>`;
 }
 
+/* ----- Đã xem ----- */
+let readTimer;
+function markRead() {
+  if (!S.readsOk || document.hidden || !S.messages.length) return;
+  const last = S.messages[S.messages.length - 1].id;
+  const mine = S.chat_reads.find((r) => r.user_id === S.me.id);
+  if (mine && mine.last_read_id >= last) return;
+  upsertLocal("chat_reads", { user_id: S.me.id, last_read_id: last, updated_at: new Date().toISOString() });
+  clearTimeout(readTimer);
+  readTimer = setTimeout(() => sb.from("chat_reads").upsert({ user_id: S.me.id, last_read_id: last, updated_at: new Date().toISOString() }, { onConflict: "user_id" }).then(() => {}), 400);
+}
+function chatListHtml() {
+  // người khác đã xem tới tin nào -> đặt avatar nhỏ dưới tin đó
+  const seenAt = {};
+  const ids = S.messages.map((m) => m.id);
+  for (const r of S.chat_reads || []) {
+    if (r.user_id === S.me.id || !prof(r.user_id)?.approved) continue;
+    let at = null;
+    for (const id of ids) if (id <= r.last_read_id) at = id; else break;
+    if (at !== null) (seenAt[at] ||= []).push(r.user_id);
+  }
+  return S.messages.map((m) => {
+    const who = (seenAt[m.id] || []).filter((u) => u !== m.user_id || m.id !== ids[ids.length - 1]);
+    const isLast = m.id === ids[ids.length - 1];
+    const seen = who.length ? `<div class="seen" title="Seen by ${esc(who.map(nameOf).join(", "))}">${isLast && m.user_id === S.me.id ? `<span>Seen</span>` : ""}${who.map((u) => avatar(u, "xs")).join("")}</div>` : "";
+    return msgHtml(m) + seen;
+  }).join("");
+}
+
 function viewChat() {
   const pend = pendingItems();
   return `
@@ -981,7 +1015,7 @@ function viewChat() {
   <p class="sub">Talk with the group. Tasks assigned to you, new topics and join requests show up here.</p>
   <div class="chat-layout">
     <div class="card chat">
-      <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">No messages yet. Say hi.</div>`}</div>
+      <div class="chat-list">${chatListHtml() || `<div class="empty">No messages yet. Say hi.</div>`}</div>
       <form class="chat-form" id="chat-form">
         <div id="mention-pop" class="mention-pop" hidden></div>
         <input class="in" id="chat-input" placeholder="Message the group… type @ to mention someone" maxlength="1000" autocomplete="off" />
@@ -1372,6 +1406,7 @@ document.addEventListener("input", (e) => { if (e.target.id === "chat-input") up
 
 // Đổi ngày lúc nửa đêm / quay lại tab
 document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && S.tab === "chat" && S.me?.approved) markRead();
   if (!document.hidden && S.me?.approved && $("#main")) {
     render();
   }
