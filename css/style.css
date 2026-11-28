@@ -373,3 +373,11 @@ h2 { font-size: 24px; }
 .seen { display: flex; justify-content: flex-end; align-items: center; gap: 3px; margin-top: -6px; padding-right: 2px; }
 .seen span { font-size: 11px; color: #8a918a; margin-right: 4px; }
 .avatar.xs { width: 16px; height: 16px; font-size: 7.5px; border: 1.5px solid #fbfaf6; }
+
+/* Everyone's proofs */
+.circle-proofs { margin-top: 16px; }
+.cp-member { padding: 10px 0; border-top: 1px solid var(--line, #e6ecdf); }
+.cp-member:first-of-type { border-top: 0; }
+.cp-item { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0 0 36px; }
+.cp-item .title { font-weight: 400; }
+@media (max-width: 600px) { .cp-item { margin-left: 0; } }

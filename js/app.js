@@ -386,7 +386,39 @@ function viewToday() {
       </div>
       ${list.map((t) => taskRow(t, day)).join("")}
     </div>`).join("")}</div>`
-    : `<div class="card empty">No tasks for you yet. Tap “New / assign task” to propose one!</div>`}`;
+    : `<div class="card empty">No tasks for you yet. Tap “New / assign task” to propose one!</div>`}
+  ${circleProofs(day)}`;
+}
+
+/* Minh chứng của mọi người trong ngày (kể cả task riêng của từng người) */
+function circleProofs(day) {
+  const uid = S.me.id;
+  const list = S.checkins.filter((c) => c.user_id !== uid && c.done_on === day)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  const byMember = members().filter((m) => m.id !== uid)
+    .map((m) => ({ m, cs: list.filter((c) => c.user_id === m.id) })).filter((x) => x.cs.length);
+  return `
+  <div class="card circle-proofs">
+    <h2>👀 Everyone's proofs</h2>
+    <p class="muted" style="margin:2px 0 10px;font-size:13px">What others completed on this day, including their personal tasks. Tap a proof to see it.</p>
+    ${byMember.length ? byMember.map(({ m, cs }) => `
+      <div class="cp-member">
+        <div class="row" style="gap:8px">${avatar(m.id, "sm")}<b>${esc(m.display_name)}</b><span class="muted" style="font-size:12px">${cs.length} done</span></div>
+        ${cs.map((c) => {
+          const t = S.tasks.find((x) => x.id === c.task_id);
+          return `<div class="cp-item">
+            ${proofHtml(c)}
+            <div style="flex:1;min-width:0">
+              <div class="title">${esc(t?.title || "Task")}</div>
+              <div style="margin:2px 0">${t ? freqTag(t) : ""}${t?.assignee_id ? `<span class="tag">Personal</span>` : ""}</div>
+              ${c.note ? `<div style="font-size:13px">“${esc(c.note)}”</div>` : ""}
+              <div class="time">${fmtTs(c.created_at)}</div>
+            </div>
+          </div>`;
+        }).join("")}
+      </div>`).join("")
+    : `<div class="muted" style="font-size:13px">No one else has uploaded proof for this day yet.</div>`}
+  </div>`;
 }
 
 function taskRow(t, day) {
