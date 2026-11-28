@@ -1016,7 +1016,11 @@ async function enablePush() {
   const reg = await navigator.serviceWorker.register("sw.js");
   await navigator.serviceWorker.ready;
   const r = await fetch(FN_URL, { headers: { apikey: SUPABASE_ANON_KEY } });
-  if (!r.ok) throw new Error("The notification service is not set up yet (Supabase function “notify”).");
+  if (!r.ok) {
+    const detail = (await r.text().catch(() => "")).slice(0, 160);
+    const hint = r.status === 401 ? "turn off Verify JWT on the function" : r.status === 404 ? "function “smooth-api” not found" : "check that push.sql was run";
+    throw new Error(`Notification service error ${r.status}: ${hint}. ${detail}`);
+  }
   const { publicKey } = await r.json();
   const key = b64ToBytes(publicKey);
   let sub = await reg.pushManager.getSubscription();
