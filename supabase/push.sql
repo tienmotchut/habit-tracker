@@ -37,6 +37,9 @@ create table if not exists public.push_log (
 alter table public.push_config enable row level security;
 alter table public.push_log    enable row level security;
 revoke all on public.push_config, public.push_log from anon, authenticated;
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
 
 -- Gọi function khi có tin nhắn mới (@nhắc tên, đề xuất, kết quả duyệt)
 create extension if not exists pg_net with schema extensions;

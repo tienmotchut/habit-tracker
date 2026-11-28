@@ -259,6 +259,9 @@ create policy "messages delete" on public.messages for delete to authenticated
 
 grant select, insert, update, delete on all tables in schema public to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
 
 -- ---------- Lưu file minh chứng ----------
 insert into storage.buckets (id, name, public, file_size_limit)
