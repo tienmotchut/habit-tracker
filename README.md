@@ -60,3 +60,20 @@ supabase/schema.sql bảng, phân quyền, trigger, lưu file, realtime
 - Ảnh lớn hơn 1,5 MB được tự nén trước khi tải lên; giới hạn 10 MB/file. Gói free Supabase có 1 GB lưu file.
 - Project Supabase free sẽ **tạm dừng nếu 7 ngày không ai dùng**; vào dashboard bấm Restore là chạy lại.
 - Đổi chủ nhóm: SQL Editor chạy `update profiles set role='owner', approved=true where display_name='Tên';`
+
+---
+
+## 🔔 Thông báo điện thoại (miễn phí, tuỳ chọn)
+
+Gửi thông báo khi có người **@nhắc tên** bạn, khi **đến giờ nhắc task** chưa làm, và (cho chủ nhóm) khi có **đề xuất cần duyệt**. Dùng Web Push + Supabase Edge Function, nằm trong gói Free (≈45.000 lượt gọi/tháng, giới hạn free là 500.000).
+
+1. **Tạo function**: Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor**. Đặt tên **`notify`**, xoá code mẫu, dán toàn bộ [`supabase/functions/notify/index.ts`](supabase/functions/notify/index.ts) → **Deploy**.
+2. **Tắt Verify JWT**: mở function `notify` → **Details / Settings** → tắt **Verify JWT with legacy secret** (hoặc "Enforce JWT verification") → Save.
+3. **Chạy SQL**: SQL Editor → dán [`supabase/push.sql`](supabase/push.sql) → **Run**.
+4. Trên web bấm 🔔 → **Turn on** → **Send me a test notification**.
+
+Lưu ý:
+- **iPhone/iPad** (iOS 16.4+): phải mở Safari → **Chia sẻ → Thêm vào MH chính**, mở Habit Circle từ màn hình chính rồi mới bật 🔔 được.
+- **Android / máy tính**: bật thẳng trên Chrome, Edge, Firefox.
+- Mỗi thiết bị bật 1 lần. Giờ nhắc tính theo giờ Việt Nam.
+- Task weekly chưa xong sẽ được nhắc mỗi ngày (đúng giờ hẹn) cho đến khi xong trong tuần.

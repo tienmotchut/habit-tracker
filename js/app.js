@@ -1,6 +1,8 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 import { SUPABASE_URL, SUPABASE_ANON_KEY, APP_NAME } from "./config.js";
 
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
 /* =============================================================
    Tiện ích
    ============================================================= */
@@ -269,7 +271,7 @@ function renderShell() {
     <div class="brand"><img class="logo" src="img/icon.svg" alt="" /><span>${esc(APP_NAME)}</span></div>
     <nav class="nav" id="nav"></nav>
     <div class="me">
-      <button class="icon-btn" data-act="toggle-notify" id="bell" title="Browser reminders"></button>
+      <button class="icon-btn" data-act="toggle-notify" id="bell" title="Notifications"></button>
       ${avatar(S.me.id)}
       <div class="who-txt" style="line-height:1.1"><b>${esc(S.me.display_name)}</b><br><span class="muted" style="font-size:12px">${isOwner() ? "Owner" : "Member"}</span></div>
       <button class="icon-btn" data-act="logout" title="Sign out">⎋</button>
@@ -300,7 +302,7 @@ function render() {
     if (k === "chat" && (pend || unread)) b = `<span class="badge" title="${pend} pending, ${unread} unread">${pend || ""}${unread ? (pend ? " · " : "") + "💬" + unread : ""}</span>`;
     return `<button class="${S.tab === k ? "active" : ""}" data-act="tab" data-tab="${k}">${label}${b}</button>`;
   }).join("");
-  $("#bell").textContent = S.notify ? "🔔" : "🔕";
+  $("#bell").textContent = S.push || S.notify ? "🔔" : "🔕";
 
   const main = $("#main");
   if (S.tab === "today") main.innerHTML = viewToday();
@@ -971,34 +973,128 @@ async function sendChat(text) {
 
 function onNewMessage(m) {
   if (m.user_id === S.user.id) return;
-  if (S.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
+  // Khi đã bật thông báo điện thoại, máy chủ tự gửi -> không báo trùng ở đây
+  if (!S.push && S.notify && document.hidden) {
     const who = nameOf(m.user_id);
     const hit = m.kind === "chat" && mentionsMe(m.content);
-    new Notification(hit ? `@ ${who} mentioned you` : m.kind === "chat" ? who : "Needs approval", { body: m.kind === "chat" ? m.content : `${who} ${m.content}`, tag: "msg" });
+    localNotify(hit ? `${who} mentioned you` : m.kind === "chat" ? who : "Needs approval", m.kind === "chat" ? m.content : `${who} ${m.content}`, "msg");
   }
   if (m.kind === "chat" && mentionsMe(m.content) && S.tab !== "chat") toast(`@ ${nameOf(m.user_id)} mentioned you in chat`);
 }
 
 /* =============================================================
-   Nhắc nhở
+   Thông báo: trong trang + điện thoại (Web Push, miễn phí)
    ============================================================= */
-async function toggleNotify() {
-  if (!S.notify) {
-    if (!("Notification" in window)) return toast("This browser does not support notifications. Use 📅 to add reminders to your calendar.", true);
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") return toast("Notifications are not allowed", true);
-    S.notify = true;
-    toast("Reminders on (while the site is open). For reminders when it is closed, use 📅 Add to calendar.");
-  } else {
-    S.notify = false;
-    toast("Reminders off");
+const FN_URL = SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/notify";
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+S.push = localStorage.getItem("push") === "1";
+
+async function localNotify(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) return reg.showNotification(title, { body, tag, icon: "img/icon-192.png", badge: "img/icon-192.png" });
+    new Notification(title, { body, tag });
+  } catch { /* một số trình duyệt không cho tạo thông báo trực tiếp */ }
+}
+
+function b64ToBytes(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function enablePush() {
+  if (!pushSupported()) {
+    if (isIOS() && !isStandalone()) throw new Error("On iPhone: tap Share → Add to Home Screen, open Habit Circle from the Home Screen, then turn this on.");
+    throw new Error("This browser does not support push notifications.");
   }
-  localStorage.setItem("notify", S.notify ? "1" : "0");
-  render();
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Notifications were blocked. Allow them in your browser / phone settings.");
+  const reg = await navigator.serviceWorker.register("sw.js");
+  await navigator.serviceWorker.ready;
+  const r = await fetch(FN_URL, { headers: { apikey: SUPABASE_ANON_KEY } });
+  if (!r.ok) throw new Error("The notification service is not set up yet (Supabase function “notify”).");
+  const { publicKey } = await r.json();
+  const key = b64ToBytes(publicKey);
+  let sub = await reg.pushManager.getSubscription();
+  if (sub) {
+    const cur = sub.options?.applicationServerKey ? new Uint8Array(sub.options.applicationServerKey) : null;
+    if (!cur || cur.length !== key.length || cur.some((v, i) => v !== key[i])) { await sub.unsubscribe(); sub = null; }
+  }
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+  const j = sub.toJSON();
+  const { error } = await sb.from("push_subscriptions").upsert(
+    { endpoint: j.endpoint, user_id: S.me.id, p256dh: j.keys.p256dh, auth: j.keys.auth, user_agent: navigator.userAgent.slice(0, 200) },
+    { onConflict: "endpoint" });
+  if (error) throw error;
+  S.push = true;
+  localStorage.setItem("push", "1");
+}
+
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    const sub = await reg?.pushManager.getSubscription();
+    if (sub) {
+      await sb.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+      await sub.unsubscribe();
+    }
+  } catch { /* bỏ qua */ }
+  S.push = false;
+  localStorage.setItem("push", "0");
+}
+
+async function sendTestPush() {
+  const { data } = await sb.auth.getSession();
+  const r = await fetch(FN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${data.session?.access_token}` },
+    body: JSON.stringify({ type: "test" }),
+  });
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok || !out.sent) throw new Error(out.error || "No device received it. Try turning notifications off and on again.");
+  return out.sent;
+}
+
+function openNotifyModal() {
+  const iosHint = isIOS() && !isStandalone();
+  openModal(`
+    <h2>Notifications</h2>
+    <p class="muted" style="margin-top:0">Get a notification on this device when someone @mentions you, when a task reminder is due, and (for the owner) when something needs approval. Free, no app needed.</p>
+    ${iosHint ? `<div class="warn" style="margin:10px 0">On iPhone, notifications only work from the Home Screen app: tap <b>Share</b> → <b>Add to Home Screen</b>, open <b>Habit Circle</b> from there, then come back here.</div>` : ""}
+    <div class="row" style="margin-top:14px">
+      <div style="flex:1"><b>Phone / device notifications</b><br><span class="muted" style="font-size:13px">${S.push ? "On for this device" : "Off"}</span></div>
+      <button class="btn ${S.push ? "ghost" : "y"}" id="push-toggle">${S.push ? "Turn off" : "Turn on"}</button>
+    </div>
+    ${S.push ? `<button class="btn ghost sm" id="push-test" style="margin-top:10px">Send me a test notification</button>` : ""}
+    <p class="muted" style="font-size:13px;margin-top:16px">Turn it on once on every phone or computer you use. You can also add reminders to your calendar with 📅 in Topics & Tasks.</p>
+    <div class="foot"><button class="btn ghost" data-act="close-modal">Close</button></div>`);
+  $("#push-toggle").onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      if (S.push) { await disablePush(); toast("Notifications off on this device"); }
+      else { await enablePush(); toast("Notifications on 🔔"); }
+      openNotifyModal();
+      render();
+    } catch (err) {
+      toast(errMsg(err), true);
+      e.target.disabled = false;
+    }
+  };
+  const t = $("#push-test");
+  if (t) t.onclick = async () => {
+    t.disabled = true;
+    try { await sendTestPush(); toast("Sent! It should appear in a few seconds."); }
+    catch (err) { toast(errMsg(err), true); }
+    t.disabled = false;
+  };
 }
 
 function checkReminders() {
-  if (!S.me?.approved || !S.notify) return;
+  if (!S.me?.approved) return;
   const now = new Date();
   const hm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   const d = today();
@@ -1013,9 +1109,7 @@ function checkReminders() {
     if (localStorage.getItem(key)) continue;
     localStorage.setItem(key, "1");
     toast(`⏰ Time for: ${t.title}`);
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(`⏰ ${t.title}`, { body: t.description || "Don't forget to upload your proof!", tag: t.id });
-    }
+    if (!S.push && S.notify) localNotify(`⏰ ${t.title}`, t.description || "Don't forget to upload your proof!", t.id);
   }
 }
 
@@ -1085,7 +1179,7 @@ const actions = {
   "pick-icon": (d, el, e) => { e.preventDefault(); $("#tp-icon").value = d.i; },
   ics: (d) => { const t = S.tasks.find((x) => x.id === d.id); downloadIcs([t], `reminder-${t.title.normalize("NFD").replace(/[^\w]+/g, "-").slice(0, 30)}.ics`); },
   "ics-all": () => downloadIcs(tasksFor(S.me.id), "habit-reminders.ics"),
-  "toggle-notify": () => toggleNotify(),
+  "toggle-notify": () => openNotifyModal(),
   "close-modal": () => closeModal(),
   "mention-pick": (d, el, e) => { e.preventDefault(); pickMention(d.name); },
   "mention-open": () => {
@@ -1155,3 +1249,9 @@ setInterval(checkReminders, 30000);
 setTimeout(checkReminders, 3000);
 
 start();
+
+// Mở web từ thông báo (vd #chat) -> chuyển đúng tab
+window.addEventListener("hashchange", () => {
+  const t = location.hash.slice(1);
+  if (["today", "progress", "manage", "chat"].includes(t) && t !== S.tab && $("#main")) { S.tab = t; render(); }
+});
