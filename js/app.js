@@ -49,6 +49,9 @@ const S = {
   topics: [],
   tasks: [],
   checkins: [],
+  task_skips: [],
+  task_postpones: [],
+  app_settings: [],
   messages: [],
   tab: ["today", "progress", "manage", "chat"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "today",
   date: today(),
@@ -79,17 +82,40 @@ const onceDay = (t) => t.due_date || tsDay(t.created_at);
 const periodOf = (task, day) => (task.frequency === "weekly" ? mondayOf(day) : task.frequency === "once" ? onceDay(task) : day);
 const freqLabel = (t) => (t.frequency === "weekly" ? "Weekly" : t.frequency === "once" ? "One-time" : "Daily");
 const freqTag = (t) => `<span class="tag ${t.frequency === "daily" ? "" : "y"}">${freqLabel(t)}</span>` +
-  (t.frequency === "once" && t.due_date ? ` <span class="tag ${t.due_date < today() ? "r" : ""}">Due ${fmtShort(t.due_date)}</span>` : "");
+  (t.frequency === "once" && t.due_date ? ` <span class="tag ${t.due_date < today() ? "r" : ""}">Due ${fmtShort(t.due_date)}</span>`
+  : t.due_date ? ` <span class="tag ${t.due_date < today() ? "r" : ""}">${t.due_date < today() ? "Ended" : "Until"} ${fmtShort(t.due_date)}</span>` : "");
+/** Task lặp lại (daily/weekly) có hạn chót: sau ngày đó thì dừng */
+const activeOn = (t, day) => t.frequency === "once" || !t.due_date || periodOf(t, day) <= t.due_date;
 const fmtShort = (s) => { const d = parseYmd(s); return `${MO[d.getMonth()]} ${d.getDate()}`; };
 /** Task một lần: hiện từ lúc tạo cho tới khi xong; xong rồi chỉ hiện vào đúng ngày làm xong */
 const visibleOn = (t, uid, day) => {
-  if (t.frequency !== "once") return true;
+  if (t.frequency !== "once") return activeOn(t, day);
   const c = checkinOf(t.id, uid, onceDay(t));
   if (c) return c.done_on === day;
+  const s = skipOf(t.id, uid, onceDay(t));
+  if (s) return tsDay(s.created_at) === day;
   if (day < tsDay(t.created_at)) return false;
   return day === today() || day === onceDay(t);
 };
-const checkinOf = (taskId, uid, period) => S.checkins.find((c) => c.task_id === taskId && c.user_id === uid && c.period_start === period);
+const taskById = (id) => S.tasks.find((t) => t.id === id);
+// Task một lần: hạn có thể bị dời, nên làm/skip ở kỳ nào cũng tính
+const samePeriod = (r, period) => r.period_start === period || taskById(r.task_id)?.frequency === "once";
+const checkinOf = (taskId, uid, period) => S.checkins.find((c) => c.task_id === taskId && c.user_id === uid && samePeriod(c, period));
+const skipOf = (taskId, uid, period) => S.task_skips.find((x) => x.task_id === taskId && x.user_id === uid && samePeriod(x, period));
+/** Giới hạn Skip + Postpone mỗi tuần (thứ Hai -> Chủ nhật) */
+const skipLimit = () => S.app_settings[0]?.weekly_skip_limit ?? 2;
+const skipsUsed = (uid = S.me.id) => {
+  const start = parseYmd(mondayOf(today())).toISOString();
+  return S.task_skips.filter((x) => x.user_id === uid && x.created_at >= start).length +
+    S.task_postpones.filter((x) => x.user_id === uid && x.created_at >= start).length;
+};
+const skipsLeft = () => Math.max(0, skipLimit() - skipsUsed());
+const limitNote = () => { const l = skipsLeft(); return `<div class="limit-note ${l ? "" : "none"}">${l ? `You have <b>${l}</b> of ${skipLimit()} skips / postpones left this week.` : `You've used all ${skipLimit()} skips / postpones for this week. Try to get it done! 💪`}</div>`; };
+/** Task một lần đã quá hạn mà chưa làm / chưa skip */
+const overdueOf = (uid) => tasksFor(uid).filter((t) => t.frequency === "once" && onceDay(t) < today() &&
+  !checkinOf(t.id, uid, onceDay(t)) && !skipOf(t.id, uid, onceDay(t)));
+const skipErr = (e) => /task_skips|postpone_task|app_settings|schema cache|does not exist|0 rows|multiple \(or no\) rows/i.test(errMsg(e))
+  ? "Not set up yet: run supabase/late-tasks.sql in the Supabase SQL Editor" : errMsg(e);
 
 /** Việc đang chờ CHÍNH MÌNH xử lý: chủ nhóm duyệt thành viên/chủ đề; ai được giao task thì Accept/Decline */
 const pendingItems = () => [
@@ -129,6 +155,15 @@ async function loadAll() {
   if (msgs.error) throw msgs.error;
   // "Đã xem": bảng chat_reads có thể chưa tồn tại nếu chưa chạy seen.sql -> bỏ qua
   const reads = await sb.from("chat_reads").select("*");
+  // Skip có lý do: bảng có thể chưa có nếu chưa chạy late-tasks.sql
+  const skips = await sb.from("task_skips").select("*").gte("period_start", since);
+  S.task_skips = skips.error ? [] : skips.data;
+  const [pps, sets] = await Promise.all([
+    sb.from("task_postpones").select("*").gte("created_at", parseYmd(addDays(mondayOf(today()), -7)).toISOString()),
+    sb.from("app_settings").select("*"),
+  ]);
+  S.task_postpones = pps.error ? [] : pps.data;
+  S.app_settings = sets.error ? [] : sets.data;
   Object.assign(S, { profiles, topics, tasks, checkins, messages: msgs.data.reverse(), chat_reads: reads.error ? [] : reads.data, readsOk: !reads.error });
   S.me = prof(S.user.id) || S.me;
 }
@@ -350,20 +385,24 @@ function render() {
 function viewToday() {
   const day = S.date;
   const uid = S.me.id;
+  const isToday0 = day === today();
+  const overdue = isToday0 ? overdueOf(uid) : [];
+  const odIds = new Set(overdue.map((t) => t.id));
   const mine = tasksFor(uid).filter((t) => visibleOn(t, uid, day));
-  const doneMine = mine.filter((t) => checkinOf(t.id, uid, periodOf(t, day)));
+  const mineCount = mine.filter((t) => !skipOf(t.id, uid, periodOf(t, day)));
+  const doneMine = mineCount.filter((t) => checkinOf(t.id, uid, periodOf(t, day)));
   const all = members();
   let gExp = 0, gDone = 0;
-  for (const m of all) for (const t of tasksFor(m.id).filter((x) => visibleOn(x, m.id, day))) { gExp++; if (checkinOf(t.id, m.id, periodOf(t, day))) gDone++; }
+  for (const m of all) for (const t of tasksFor(m.id).filter((x) => visibleOn(x, m.id, day))) { if (skipOf(t.id, m.id, periodOf(t, day))) continue; gExp++; if (checkinOf(t.id, m.id, periodOf(t, day))) gDone++; }
   const isToday = day === today();
 
-  const byTopic = S.topics.filter((tp) => tp.status === "approved").map((tp) => ({ tp, list: mine.filter((t) => t.topic_id === tp.id) })).filter((x) => x.list.length);
+  const byTopic = S.topics.filter((tp) => tp.status === "approved").map((tp) => ({ tp, list: mine.filter((t) => t.topic_id === tp.id && !odIds.has(t.id)) })).filter((x) => x.list.length);
 
   return `
   <h1 class="page">${isToday ? "Today" : fmtDate(day)}</h1>
   <p class="sub">${isToday ? fmtDate(day) + " · " : ""}Complete a task by uploading a photo or file as proof.</p>
   <div class="stats">
-    <div class="stat"><b>${doneMine.length}/${mine.length}</b><span>Your tasks done</span></div>
+    <div class="stat"><b>${doneMine.length}/${mineCount.length}</b><span>Your tasks done</span></div>
     <div class="stat y"><b>${streakOf(uid)} 🔥</b><span>Day streak</span></div>
     <div class="stat"><b>${gExp ? Math.round((gDone / gExp) * 100) : 0}%</b><span>Group completion</span></div>
     <div class="stat y"><b>${pendingItems().length}</b><span>Needs you</span></div>
@@ -378,6 +417,12 @@ function viewToday() {
     <span class="spacer"></span>
     <button class="btn y" data-act="new-task">＋ New / assign task</button>
   </div>
+  ${overdue.length ? `
+  <div class="card overdue-card">
+    <div class="topic-head"><div class="topic-ico" style="background:#fde2e2">⚠️</div>
+      <div><h2>Overdue</h2><span class="muted" style="font-size:13px">Finish it, postpone it, or mark it as can't do, so nothing is left hanging.</span></div></div>
+    ${overdue.map((t) => taskRow(t, day)).join("")}
+  </div>` : ""}
   ${byTopic.length ? `<div class="grid two">${byTopic.map(({ tp, list }) => `
     <div class="card">
       <div class="topic-head">
@@ -425,12 +470,16 @@ function taskRow(t, day) {
   const uid = S.me.id;
   const period = periodOf(t, day);
   const c = checkinOf(t.id, uid, period);
-  const peers = members().filter((m) => m.id !== uid && (!t.assignee_id || t.assignee_id === m.id))
-    .map((m) => ({ m, c: checkinOf(t.id, m.id, period) })).filter((x) => x.c);
+  const sk = !c && skipOf(t.id, uid, period);
+  const others = members().filter((m) => m.id !== uid && (!t.assignee_id || t.assignee_id === m.id));
+  const peers = others.map((m) => ({ m, c: checkinOf(t.id, m.id, period) })).filter((x) => x.c);
+  const peerSkips = others.map((m) => ({ m, s: !checkinOf(t.id, m.id, period) && skipOf(t.id, m.id, period) })).filter((x) => x.s);
   const created = tsDay(t.created_at);
+  const late = t.frequency === "once" && !c && !sk && onceDay(t) < today();
+  const canPostpone = t.frequency === "once" && (isOwner() || t.created_by === uid || t.assignee_id === uid || !t.assignee_id);
   return `
-  <div class="task ${c ? "done" : ""}">
-    <div class="check">${c ? "✓" : ""}</div>
+  <div class="task ${c ? "done" : sk ? "skipped" : late ? "late" : ""}">
+    <div class="check">${c ? "✓" : sk ? "–" : ""}</div>
     <div class="body">
       <div class="title">${esc(t.title)}</div>
       <div style="margin:3px 0">
@@ -446,9 +495,20 @@ function taskRow(t, day) {
             <div class="time">${t.frequency !== "daily" ? "Done on " + fmtDate(c.done_on) : "Submitted " + fmtTs(c.created_at)}</div></div>
           <button class="btn danger sm" data-act="undo" data-id="${c.id}">Undo</button>
         </div>`
+      : sk ? `
+        <div class="row" style="margin-top:8px">
+          <div class="skip-note">⏭ ${t.frequency === "once" ? "Can't do" : "Skipped"}: “${esc(sk.reason)}”</div>
+          <button class="btn ghost sm" data-act="undo-skip" data-id="${sk.id}">Undo</button>
+        </div>`
       : day < created && t.frequency !== "weekly" ? `<div class="muted" style="font-size:13px;margin-top:6px">This task did not exist yet on this day</div>`
-      : `<button class="btn sm" style="margin-top:8px" data-act="submit-proof" data-id="${t.id}">📎 Upload proof</button>`}
-      ${peers.length ? `<div class="peers"><span class="muted" style="font-size:12px;margin-right:4px">Done:</span>${peers.map((x) => `<span data-act="view-proof" data-id="${x.c.id}">${avatar(x.m.id, "sm")}</span>`).join("")}</div>` : ""}
+      : `${late ? `<div class="late-note">Overdue since ${fmtDate(onceDay(t))}</div>` : ""}
+        <div class="row task-btns">
+          <button class="btn sm" data-act="submit-proof" data-id="${t.id}">📎 Upload proof</button>
+          ${canPostpone ? `<button class="btn ghost sm" data-act="postpone" data-id="${t.id}">⏩ Postpone</button>` : ""}
+          <button class="btn ghost sm" data-act="skip" data-id="${t.id}">⏭ ${t.frequency === "once" ? "Can't do" : "Skip"}</button>
+        </div>`}
+      ${peers.length || peerSkips.length ? `<div class="peers">${peers.length ? `<span class="muted" style="font-size:12px;margin-right:4px">Done:</span>${peers.map((x) => `<span data-act="view-proof" data-id="${x.c.id}">${avatar(x.m.id, "sm")}</span>`).join("")}` : ""}
+        ${peerSkips.length ? `<span class="muted" style="font-size:12px;margin:0 4px 0 ${peers.length ? 10 : 0}px">Skipped:</span>${peerSkips.map((x) => `<span class="skip-peer" title="${esc(x.m.display_name)}: ${esc(x.s.reason)}" data-act="skip-info" data-id="${x.s.id}">${avatar(x.m.id, "sm")}</span>`).join("")}` : ""}</div>` : ""}
     </div>
   </div>`;
 }
@@ -479,8 +539,14 @@ async function hydrateProofs() {
   for (const img of imgs) if (S.urls[img.dataset.proof]) img.src = S.urls[img.dataset.proof].url;
 }
 
+/** Ngày có làm task, hoặc skip có lý do (không làm đứt chuỗi) */
+const activeDays = (uid) => [
+  ...S.checkins.filter((c) => c.user_id === uid).map((c) => c.done_on),
+  ...S.task_skips.filter((x) => x.user_id === uid && taskById(x.task_id)?.frequency === "daily").map((x) => x.period_start),
+];
+
 function streakOf(uid) {
-  const days = new Set(S.checkins.filter((c) => c.user_id === uid).map((c) => c.done_on));
+  const days = new Set(activeDays(uid));
   let d = today();
   if (!days.has(d)) d = addDays(d, -1);
   let n = 0;
@@ -606,6 +672,72 @@ async function viewProof(id) {
     <div class="foot"><button class="btn ghost" data-act="close-modal">Close</button></div>`);
 }
 
+/* ----- Task trễ / không làm được ----- */
+function openSkipModal(taskId) {
+  const t = taskById(taskId);
+  const day = S.date, period = periodOf(t, day);
+  const once = t.frequency === "once";
+  openModal(`
+    <h2>${once ? "Can't do this task" : "Skip with a reason"}</h2>
+    <p class="muted" style="margin-top:0">${esc(t.title)} · ${t.frequency === "weekly" ? "week of " + fmtDate(period) : once ? "one-time task" : fmtDate(day)}</p>
+    ${limitNote()}
+    <div class="chips">${["Sick", "Too busy", "Traveling", "Bad weather", "Family matter"].map((r) => `<button class="chip" data-act="skip-reason" data-r="${r}">${r}</button>`).join("")}</div>
+    <label class="f">Reason</label>
+    <textarea class="in" id="skip-reason" maxlength="300" placeholder="e.g. I have a fever today"></textarea>
+    <p class="muted" style="font-size:13px">The group sees your reason in chat. ${once ? "The task leaves your list." : "This day won't count against your progress or streak."}</p>
+    <div class="foot">
+      <button class="btn ghost" data-act="close-modal">Cancel</button>
+      <button class="btn y" id="skip-go">${once ? "Mark as can't do" : "Skip"}</button>
+    </div>`);
+  $("#skip-go").onclick = async () => {
+    if (!skipsLeft()) return toast(`Weekly limit reached (${skipLimit()} per week)`, true);
+    const reason = $("#skip-reason").value.trim();
+    if (!reason) return toast("Please write a short reason", true);
+    const { data, error } = await sb.from("task_skips").insert({ task_id: t.id, period_start: period, reason }).select().single();
+    if (error) return toast(skipErr(error), true);
+    upsertLocal("task_skips", data);
+    closeModal();
+    toast("Done. The group can see your reason.");
+    render();
+  };
+}
+
+async function undoSkip(id) {
+  const { error } = await sb.from("task_skips").delete().eq("id", id);
+  if (error) return toast(skipErr(error), true);
+  removeLocal("task_skips", id);
+  render();
+}
+
+function openPostponeModal(taskId) {
+  const t = taskById(taskId);
+  openModal(`
+    <h2>Postpone</h2>
+    <p class="muted" style="margin-top:0">${esc(t.title)} · now due ${fmtDate(onceDay(t))}</p>
+    ${limitNote()}
+    <div class="chips">${[[1, "Tomorrow"], [3, "In 3 days"], [7, "Next week"]].map(([n, l]) => `<button class="chip" data-act="pp-quick" data-n="${n}">${l}</button>`).join("")}</div>
+    <label class="f">New due date</label>
+    <input class="in" type="date" id="pp-date" min="${today()}" value="${addDays(today(), 1)}" style="width:180px" />
+    <p class="muted" style="font-size:13px">The group chat shows that you moved it.</p>
+    <div class="foot">
+      <button class="btn ghost" data-act="close-modal">Cancel</button>
+      <button class="btn y" id="pp-go">Postpone</button>
+    </div>`);
+  $("#pp-go").onclick = async () => {
+    const d = $("#pp-date").value;
+    if (!d || d < today()) return toast("Pick today or a later date", true);
+    if (!skipsLeft()) return toast(`Weekly limit reached (${skipLimit()} per week)`, true);
+    const { error } = await sb.rpc("postpone_task", { p_task: t.id, p_date: d });
+    if (error) return toast(skipErr(error), true);
+    upsertLocal("tasks", { ...t, due_date: d });
+    const pp = await sb.from("task_postpones").select("*").gte("created_at", parseYmd(addDays(mondayOf(today()), -7)).toISOString());
+    if (!pp.error) S.task_postpones = pp.data;
+    closeModal();
+    toast(`Moved to ${fmtShort(d)}`);
+    render();
+  };
+}
+
 async function undoCheckin(id) {
   const c = S.checkins.find((x) => x.id === id);
   if (!c || !confirm("Undo this completion? The proof file will be deleted.")) return;
@@ -624,7 +756,7 @@ function dayStats(uid, day, topicId) {
   if (p && day < tsDay(p.created_at)) return null;
   const list = tasksFor(uid, topicId);
   const ids = new Set(list.map((t) => t.id));
-  const expected = list.filter((t) => t.frequency === "daily" && tsDay(t.created_at) <= day).length;
+  const expected = list.filter((t) => t.frequency === "daily" && tsDay(t.created_at) <= day && activeOn(t, day) && !skipOf(t.id, uid, day)).length;
   const done = S.checkins.filter((c) => c.user_id === uid && c.done_on === day && ids.has(c.task_id)).length;
   return { expected, done };
 }
@@ -641,12 +773,14 @@ function weekRate(uid, topicId) {
   for (const t of tasksFor(uid, topicId)) {
     if (t.frequency === "once") {
       const od = onceDay(t), c = checkinOf(t.id, uid, od);
+      if (!c && skipOf(t.id, uid, od)) continue;
       if ((od >= mon && od <= today()) || (c && c.done_on >= mon)) { exp++; if (c) done++; }
     } else if (t.frequency === "weekly") {
+      if (!activeOn(t, mon) || (!checkinOf(t.id, uid, mon) && skipOf(t.id, uid, mon))) continue;
       exp++; if (checkinOf(t.id, uid, mon)) done++;
     } else {
       for (let d = mon; d <= today(); d = addDays(d, 1)) {
-        if (tsDay(t.created_at) > d) continue;
+        if (tsDay(t.created_at) > d || !activeOn(t, d) || (!checkinOf(t.id, uid, d) && skipOf(t.id, uid, d))) continue;
         exp++; if (checkinOf(t.id, uid, d)) done++;
       }
     }
@@ -673,7 +807,7 @@ function heatmap(uid, topicId, weeks) {
 }
 
 function bestStreak(uid) {
-  const days = [...new Set(S.checkins.filter((c) => c.user_id === uid).map((c) => c.done_on))].sort();
+  const days = [...new Set(activeDays(uid))].sort();
   let best = 0, cur = 0, prev = null;
   for (const d of days) { cur = prev && addDays(prev, 1) === d ? cur + 1 : 1; best = Math.max(best, cur); prev = d; }
   return best;
@@ -748,6 +882,11 @@ function viewManage() {
   const canEdit = (x) => isOwner() || x.created_by === uid || (x.title !== undefined && x.assignee_id === uid);
   return `
   <h1 class="page">Topics & Tasks</h1>
+  <div class="card limit-card">
+    <span>⏭ Skips + postpones per person each week: </span>
+    ${isOwner() ? `<input class="in" type="number" id="skip-limit" min="0" max="50" value="${skipLimit()}" style="width:72px" /><button class="btn sm" data-act="save-limit">Save</button>` : `<b>${skipLimit()}</b>`}
+    <span class="muted" style="font-size:13px">You've used ${Math.min(skipsUsed(), skipLimit())}/${skipLimit()} this week.</span>
+  </div>
   <p class="sub">${isOwner() ? "Anyone can create tasks. If you assign a task to someone, they get an @ notification and accept or decline it. New topics and members still need your approval." : "Create tasks for yourself or the group, or assign one to someone: they get an @ notification and accept or decline it. New topics need the owner's approval."}</p>
   <div class="row" style="margin-bottom:16px">
     <div class="pills">
@@ -856,9 +995,10 @@ function openTaskModal(id, topicId) {
       <label><input type="radio" name="tk-freq" value="weekly" ${freq === "weekly" ? "checked" : ""}><span>Weekly</span></label>
       <label><input type="radio" name="tk-freq" value="once" ${freq === "once" ? "checked" : ""}><span>One time</span></label>
     </div>
-    <div id="tk-due-wrap" ${freq === "once" ? "" : "hidden"}>
-      <label class="f">Due date</label>
-      <input class="in" type="date" id="tk-due" value="${esc(t?.due_date || today())}" style="width:180px" />
+    <div id="tk-due-wrap">
+      <label class="f" id="tk-due-label">${freq === "once" ? "Due date" : "Deadline (optional): the task stops after this day"}</label>
+      <div class="row"><input class="in" type="date" id="tk-due" value="${esc(t?.due_date || (freq === "once" ? today() : ""))}" style="width:180px" />
+        <button class="btn ghost sm" data-act="clear-due" ${freq === "once" ? "hidden" : ""}>No deadline</button></div>
     </div>
     <label class="f">Reminder at</label>
     <div class="row"><input class="in" type="time" id="tk-rem" value="${esc(t?.reminder_time?.slice(0, 5) || "")}" style="width:140px" />
@@ -881,7 +1021,9 @@ function openTaskModal(id, topicId) {
     };
     if (!row.title) return toast("Enter a task name", true);
     // chỉ gửi due_date khi cần, để database chưa chạy one-time.sql vẫn tạo task Daily/Weekly được
-    if (row.frequency === "once") row.due_date = $("#tk-due").value || today();
+    const due = $("#tk-due").value;
+    if (row.frequency === "once") row.due_date = due || today();
+    else if (due) row.due_date = due;
     else if (t?.due_date) row.due_date = null;
     if (!row.topic_id) return toast("Choose a topic", true);
     const q = t ? sb.from("tasks").update(row).eq("id", t.id) : sb.from("tasks").insert(row);
@@ -1251,7 +1393,7 @@ function myNotifs() {
   const now = new Date();
   const d = today();
   for (const t of tasksFor(uid)) {
-    if (!t.reminder_time || !visibleOn(t, uid, d) || checkinOf(t.id, uid, periodOf(t, d))) continue;
+    if (!t.reminder_time || !visibleOn(t, uid, d) || checkinOf(t.id, uid, periodOf(t, d)) || skipOf(t.id, uid, periodOf(t, d))) continue;
     const [h, mi] = t.reminder_time.split(":").map(Number);
     const at = parseYmd(d); at.setHours(h, mi, 0, 0);
     if (at > now) continue;
@@ -1299,7 +1441,7 @@ function checkReminders() {
     if (rt > hm) continue;
     const [h, m] = rt.split(":").map(Number);
     if (now.getHours() * 60 + now.getMinutes() - (h * 60 + m) > 60) continue;
-    if (checkinOf(t.id, S.me.id, periodOf(t, d))) continue;
+    if (!visibleOn(t, S.me.id, d) || checkinOf(t.id, S.me.id, periodOf(t, d)) || skipOf(t.id, S.me.id, periodOf(t, d))) continue;
     const key = `rem:${t.id}:${d}`;
     if (localStorage.getItem(key)) continue;
     localStorage.setItem(key, "1");
@@ -1360,6 +1502,21 @@ const actions = {
   "submit-proof": (d) => openProofModal(d.id),
   "view-proof": (d) => viewProof(d.id),
   undo: (d) => undoCheckin(d.id),
+  skip: (d) => openSkipModal(d.id),
+  postpone: (d) => openPostponeModal(d.id),
+  "undo-skip": (d) => undoSkip(d.id),
+  "skip-info": (d) => { const x = S.task_skips.find((y) => y.id === d.id); if (x) toast(`${nameOf(x.user_id)} skipped: ${x.reason}`); },
+  "skip-reason": (d) => { $("#skip-reason").value = d.r; $("#skip-reason").focus(); },
+  "pp-quick": (d) => { $("#pp-date").value = addDays(today(), Number(d.n)); },
+  "clear-due": () => { $("#tk-due").value = ""; },
+  "save-limit": async () => {
+    const v = Math.max(0, Math.min(50, Number($("#skip-limit").value) || 0));
+    const { data, error } = await sb.from("app_settings").update({ weekly_skip_limit: v }).eq("id", 1).select().single();
+    if (error) return toast(skipErr(error), true);
+    S.app_settings = [data];
+    toast(`Limit set to ${v} per week`);
+    render();
+  },
   "prog-topic": (d) => { S.progTopic = d.id; render(); },
   "prog-weeks": (d) => { S.progWeeks = Number(d.w); render(); },
   mfilter: (d) => { S.manageFilter = d.f; render(); },
@@ -1402,7 +1559,12 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("change", (e) => {
-  if (e.target.name === "tk-freq") { const w = $("#tk-due-wrap"); if (w) w.hidden = e.target.value !== "once"; }
+  if (e.target.name === "tk-freq") {
+    const once = e.target.value === "once";
+    $("#tk-due-label").textContent = once ? "Due date" : "Deadline (optional): the task stops after this day";
+    $("[data-act=clear-due]").hidden = once;
+    if (once && !$("#tk-due").value) $("#tk-due").value = today();
+  }
   if (e.target.id === "day-pick" && e.target.value) { S.date = e.target.value > today() ? today() : e.target.value; render(); }
 });
 

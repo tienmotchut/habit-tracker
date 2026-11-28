@@ -9,6 +9,7 @@ Web theo dõi thói quen cho cả nhóm: tạo & giao task, nộp ảnh/file min
 - **Chủ nhóm** (người đăng ký đầu tiên) duyệt **chủ đề mới** và **thành viên mới**.
 - **Task một lần (One time)** có hạn chót, hiện mỗi ngày tới khi xong.
 - **Chat** có dấu "Seen" (đã xem) — cần chạy [`supabase/seen.sql`](supabase/seen.sql).
+- **Task trễ / không làm được**: nút *Skip* kèm lý do (không trừ tiến độ, không đứt chuỗi), *Postpone* dời hạn task one time, mục *Overdue* ở đầu tab Today, hạn chót (deadline) cho cả task daily/weekly, và giới hạn số lần skip + postpone mỗi tuần (chủ nhóm chỉnh ở tab Topics & Tasks) — cần chạy [`supabase/late-tasks.sql`](supabase/late-tasks.sql).
 - Đã cài từ trước? Chạy thêm [`supabase/task-assign.sql`](supabase/task-assign.sql) và [`supabase/one-time.sql`](supabase/one-time.sql) trong SQL Editor.
 - **Hôm nay**: mỗi task mỗi ngày (hoặc mỗi tuần) có nút **Nộp ảnh / file minh chứng**. Xem được minh chứng của người khác.
 - **Daily / Weekly + nhắc nhở**: trong phần sửa task chọn Hằng ngày / Hằng tuần và giờ nhắc. Nhắc bằng thông báo trình duyệt (khi web đang mở) và nút 📅 tải file lịch `.ics` để điện thoại/Google Calendar tự nhắc hằng ngày/tuần.

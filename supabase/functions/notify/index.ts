@@ -139,6 +139,8 @@ async function reminders() {
   const topicById = Object.fromEntries((topics || []).map((t) => [t.id, t]));
   const due = (tasks || []).filter((t) => {
     if (topicById[t.topic_id]?.status !== "approved") return false;
+    // task daily/weekly đã qua hạn chót thì thôi nhắc
+    if (t.frequency !== "once" && t.due_date && (t.frequency === "weekly" ? mondayOf(day) : day) > t.due_date) return false;
     const [h, m] = t.reminder_time.split(":").map(Number);
     const diff = mins - (h * 60 + m);
     return diff >= 0 && diff <= REMINDER_WINDOW_MIN;
@@ -149,16 +151,22 @@ async function reminders() {
     : t.frequency === "once" ? (t.due_date || new Date(t.created_at).toLocaleDateString("en-CA", { timeZone: TIME_ZONE }))
     : day;
   const periods = [...new Set(due.map(periodFor))];
-  const { data: done } = await sb.from("checkins").select("task_id, user_id, period_start")
-    .in("task_id", due.map((t) => t.id)).in("period_start", periods);
-  const doneSet = new Set((done || []).map((c) => `${c.task_id}:${c.user_id}:${c.period_start}`));
+  const onceIds = new Set(due.filter((t) => t.frequency === "once").map((t) => t.id));
+  const [{ data: done }, { data: onceDone }, skipsRes] = await Promise.all([
+    sb.from("checkins").select("task_id, user_id, period_start").in("task_id", due.map((t) => t.id)).in("period_start", periods),
+    onceIds.size ? sb.from("checkins").select("task_id, user_id, period_start").in("task_id", [...onceIds]) : Promise.resolve({ data: [] }),
+    sb.from("task_skips").select("task_id, user_id, period_start").in("task_id", due.map((t) => t.id)), // bảng có thể chưa có
+  ]);
+  // Task một lần: đã làm / đã skip ở bất kỳ kỳ nào cũng tính (vì hạn có thể bị dời)
+  const keyOf = (c) => `${c.task_id}:${c.user_id}:${onceIds.has(c.task_id) ? "once" : c.period_start}`;
+  const doneSet = new Set([...(done || []), ...(onceDone || []), ...(skipsRes.error ? [] : skipsRes.data || [])].map(keyOf));
 
   const jobs = [];
   for (const t of due) {
     const period = periodFor(t);
     const users = t.assignee_id ? [t.assignee_id] : (people || []).map((p) => p.id);
     for (const u of users) {
-      if (doneSet.has(`${t.id}:${u}:${period}`)) continue;
+      if (doneSet.has(`${t.id}:${u}:${t.frequency === "once" ? "once" : period}`)) continue;
       jobs.push({ key: `rem:${t.id}:${u}:${day}`, user: u, t });
     }
   }
