@@ -839,10 +839,13 @@ function openTaskModal(id, topicId) {
       topic_id: $("#tk-topic").value,
       assignee_id: $("#tk-assignee").value || null,
       frequency: document.querySelector("input[name=tk-freq]:checked").value,
-      due_date: document.querySelector("input[name=tk-freq]:checked").value === "once" ? ($("#tk-due").value || today()) : null,
+
       reminder_time: $("#tk-rem").value || null,
     };
     if (!row.title) return toast("Enter a task name", true);
+    // chỉ gửi due_date khi cần, để database chưa chạy one-time.sql vẫn tạo task Daily/Weekly được
+    if (row.frequency === "once") row.due_date = $("#tk-due").value || today();
+    else if (t?.due_date) row.due_date = null;
     if (!row.topic_id) return toast("Choose a topic", true);
     const q = t ? sb.from("tasks").update(row).eq("id", t.id) : sb.from("tasks").insert(row);
     const { data, error } = await q.select().single();
