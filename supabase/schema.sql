@@ -76,7 +76,8 @@ create table if not exists public.tasks (
   topic_id      uuid not null references public.topics(id) on delete cascade,
   title         text not null,
   description   text,
-  frequency     text not null default 'daily' check (frequency in ('daily','weekly')),
+  frequency     text not null default 'daily' check (frequency in ('daily','weekly','once')),
+  due_date      date,                                                    -- cho task 'once'
   reminder_time time,
   assignee_id   uuid references public.profiles(id) on delete set null,  -- null = cả nhóm
   status        text not null default 'pending' check (status in ('pending','approved','rejected')),

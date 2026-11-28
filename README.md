@@ -7,7 +7,8 @@ Web theo dõi thói quen cho cả nhóm: tạo & giao task, nộp ảnh/file min
 - **Chủ đề mặc định**: Fitness, Uống đủ nước, Học tiếng Trung, Công việc, Nói chuyện với gia đình (mỗi chủ đề có sẵn 1 task mẫu).
 - **Task**: ai cũng tạo được. Task cho cả nhóm / cho mình có hiệu lực ngay. Giao cho người khác → người đó nhận @thông báo và bấm **Accept / Decline**.
 - **Chủ nhóm** (người đăng ký đầu tiên) duyệt **chủ đề mới** và **thành viên mới**.
-- Đã cài từ trước? Chạy thêm [`supabase/task-assign.sql`](supabase/task-assign.sql) trong SQL Editor.
+- **Task một lần (One time)** có hạn chót, hiện mỗi ngày tới khi xong.
+- Đã cài từ trước? Chạy thêm [`supabase/task-assign.sql`](supabase/task-assign.sql) và [`supabase/one-time.sql`](supabase/one-time.sql) trong SQL Editor.
 - **Hôm nay**: mỗi task mỗi ngày (hoặc mỗi tuần) có nút **Nộp ảnh / file minh chứng**. Xem được minh chứng của người khác.
 - **Daily / Weekly + nhắc nhở**: trong phần sửa task chọn Hằng ngày / Hằng tuần và giờ nhắc. Nhắc bằng thông báo trình duyệt (khi web đang mở) và nút 📅 tải file lịch `.ics` để điện thoại/Google Calendar tự nhắc hằng ngày/tuần.
 - **Tiến độ**: heatmap từng thành viên (ô càng xanh đậm càng làm nhiều, ô vàng = xong 100%), lọc theo chủ đề, bảng xếp hạng tuần, chuỗi ngày 🔥.

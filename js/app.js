@@ -75,7 +75,20 @@ const tasksFor = (uid, topicId = "all") =>
   S.tasks.filter((t) => t.status === "approved" && topicOf(t.topic_id)?.status === "approved" &&
     (!t.assignee_id || t.assignee_id === uid) && (topicId === "all" || t.topic_id === topicId));
 
-const periodOf = (task, day) => (task.frequency === "weekly" ? mondayOf(day) : day);
+const onceDay = (t) => t.due_date || tsDay(t.created_at);
+const periodOf = (task, day) => (task.frequency === "weekly" ? mondayOf(day) : task.frequency === "once" ? onceDay(task) : day);
+const freqLabel = (t) => (t.frequency === "weekly" ? "Weekly" : t.frequency === "once" ? "One-time" : "Daily");
+const freqTag = (t) => `<span class="tag ${t.frequency === "daily" ? "" : "y"}">${freqLabel(t)}</span>` +
+  (t.frequency === "once" && t.due_date ? ` <span class="tag ${t.due_date < today() ? "r" : ""}">Due ${fmtShort(t.due_date)}</span>` : "");
+const fmtShort = (s) => { const d = parseYmd(s); return `${MO[d.getMonth()]} ${d.getDate()}`; };
+/** Task một lần: hiện từ lúc tạo cho tới khi xong; xong rồi chỉ hiện vào đúng ngày làm xong */
+const visibleOn = (t, uid, day) => {
+  if (t.frequency !== "once") return true;
+  const c = checkinOf(t.id, uid, onceDay(t));
+  if (c) return c.done_on === day;
+  if (day < tsDay(t.created_at)) return false;
+  return day === today() || day === onceDay(t);
+};
 const checkinOf = (taskId, uid, period) => S.checkins.find((c) => c.task_id === taskId && c.user_id === uid && c.period_start === period);
 
 /** Việc đang chờ CHÍNH MÌNH xử lý: chủ nhóm duyệt thành viên/chủ đề; ai được giao task thì Accept/Decline */
@@ -332,11 +345,11 @@ function render() {
 function viewToday() {
   const day = S.date;
   const uid = S.me.id;
-  const mine = tasksFor(uid);
+  const mine = tasksFor(uid).filter((t) => visibleOn(t, uid, day));
   const doneMine = mine.filter((t) => checkinOf(t.id, uid, periodOf(t, day)));
   const all = members();
   let gExp = 0, gDone = 0;
-  for (const m of all) for (const t of tasksFor(m.id)) { gExp++; if (checkinOf(t.id, m.id, periodOf(t, day))) gDone++; }
+  for (const m of all) for (const t of tasksFor(m.id).filter((x) => visibleOn(x, m.id, day))) { gExp++; if (checkinOf(t.id, m.id, periodOf(t, day))) gDone++; }
   const isToday = day === today();
 
   const byTopic = S.topics.filter((tp) => tp.status === "approved").map((tp) => ({ tp, list: mine.filter((t) => t.topic_id === tp.id) })).filter((x) => x.list.length);
@@ -384,7 +397,7 @@ function taskRow(t, day) {
     <div class="body">
       <div class="title">${esc(t.title)}</div>
       <div style="margin:3px 0">
-        <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Weekly" : "Daily"}</span>
+        ${freqTag(t)}
         ${t.reminder_time ? `<span class="tag">⏰ ${t.reminder_time.slice(0, 5)}</span>` : ""}
         ${t.assignee_id ? `<span class="tag y">👤 ${esc(nameOf(t.assignee_id))}</span>` : ""}
       </div>
@@ -393,10 +406,10 @@ function taskRow(t, day) {
         <div class="row" style="margin-top:8px">
           ${proofHtml(c)}
           <div style="flex:1;min-width:120px">${c.note ? `<div style="font-size:13px">“${esc(c.note)}”</div>` : ""}
-            <div class="time">${t.frequency === "weekly" ? "Done on " + fmtDate(c.done_on) : "Submitted " + fmtTs(c.created_at)}</div></div>
+            <div class="time">${t.frequency !== "daily" ? "Done on " + fmtDate(c.done_on) : "Submitted " + fmtTs(c.created_at)}</div></div>
           <button class="btn danger sm" data-act="undo" data-id="${c.id}">Undo</button>
         </div>`
-      : day < created && t.frequency === "daily" ? `<div class="muted" style="font-size:13px;margin-top:6px">This task did not exist yet on this day</div>`
+      : day < created && t.frequency !== "weekly" ? `<div class="muted" style="font-size:13px;margin-top:6px">This task did not exist yet on this day</div>`
       : `<button class="btn sm" style="margin-top:8px" data-act="submit-proof" data-id="${t.id}">📎 Upload proof</button>`}
       ${peers.length ? `<div class="peers"><span class="muted" style="font-size:12px;margin-right:4px">Done:</span>${peers.map((x) => `<span data-act="view-proof" data-id="${x.c.id}">${avatar(x.m.id, "sm")}</span>`).join("")}</div>` : ""}
     </div>
@@ -471,7 +484,7 @@ function openProofModal(taskId) {
   let chosen = null;
   openModal(`
     <h2>Upload proof</h2>
-    <p class="muted" style="margin-top:0">${esc(t.title)} · ${t.frequency === "weekly" ? "week of " + fmtDate(mondayOf(day)) : fmtDate(day)}</p>
+    <p class="muted" style="margin-top:0">${esc(t.title)} · ${t.frequency === "weekly" ? "week of " + fmtDate(mondayOf(day)) : t.frequency === "once" ? "one-time task" : fmtDate(day)}</p>
     <label class="drop" id="proof-drop">
       <input type="file" id="proof-file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.mp3,.m4a,.mp4,.mov" hidden />
       <div id="proof-prev"><b>Tap to take or choose a photo</b><br><span class="muted">or paste an image (Ctrl / ⌘ + V), or drag it here</span></div>
@@ -589,7 +602,10 @@ function weekRate(uid, topicId) {
   const mon = mondayOf(today());
   let exp = 0, done = 0;
   for (const t of tasksFor(uid, topicId)) {
-    if (t.frequency === "weekly") {
+    if (t.frequency === "once") {
+      const od = onceDay(t), c = checkinOf(t.id, uid, od);
+      if ((od >= mon && od <= today()) || (c && c.done_on >= mon)) { exp++; if (c) done++; }
+    } else if (t.frequency === "weekly") {
       exp++; if (checkinOf(t.id, uid, mon)) done++;
     } else {
       for (let d = mon; d <= today(); d = addDays(d, 1)) {
@@ -724,7 +740,7 @@ function viewManage() {
         <div class="task-line ${t.status === "rejected" ? "faded" : ""}">
           <div style="flex:1 1 200px;min-width:0">
             <b>${esc(t.title)}</b> ${taskTag(t)}<br>
-            <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Weekly" : "Daily"}</span>
+            ${freqTag(t)}
             ${t.reminder_time ? `<span class="tag">⏰ ${t.reminder_time.slice(0, 5)}</span>` : ""}
             <span class="tag y">👤 ${t.assignee_id ? esc(nameOf(t.assignee_id)) : "Everyone"}</span>
             ${t.created_by ? `<span class="muted" style="font-size:12px">· created by ${esc(nameOf(t.created_by))}</span>` : ""}
@@ -801,6 +817,11 @@ function openTaskModal(id, topicId) {
     <div class="seg">
       <label><input type="radio" name="tk-freq" value="daily" ${freq === "daily" ? "checked" : ""}><span>Daily</span></label>
       <label><input type="radio" name="tk-freq" value="weekly" ${freq === "weekly" ? "checked" : ""}><span>Weekly</span></label>
+      <label><input type="radio" name="tk-freq" value="once" ${freq === "once" ? "checked" : ""}><span>One time</span></label>
+    </div>
+    <div id="tk-due-wrap" ${freq === "once" ? "" : "hidden"}>
+      <label class="f">Due date</label>
+      <input class="in" type="date" id="tk-due" value="${esc(t?.due_date || today())}" style="width:180px" />
     </div>
     <label class="f">Reminder at</label>
     <div class="row"><input class="in" type="time" id="tk-rem" value="${esc(t?.reminder_time?.slice(0, 5) || "")}" style="width:140px" />
@@ -818,6 +839,7 @@ function openTaskModal(id, topicId) {
       topic_id: $("#tk-topic").value,
       assignee_id: $("#tk-assignee").value || null,
       frequency: document.querySelector("input[name=tk-freq]:checked").value,
+      due_date: document.querySelector("input[name=tk-freq]:checked").value === "once" ? ($("#tk-due").value || today()) : null,
       reminder_time: $("#tk-rem").value || null,
     };
     if (!row.title) return toast("Enter a task name", true);
@@ -928,7 +950,7 @@ function msgHtml(m) {
       acts = !t ? `<span class="tag">Deleted</span>`
         : t.status === "pending" ? (approveBtns("task", t.id) || taskTag(t))
         : t.status === "approved" ? `<span class="tag" style="background:#e6ece1;color:#4f6b53">Accepted</span>` : taskTag(t);
-      if (t) acts = `<div class="acts">${acts}<span class="muted" style="font-size:12px">${soft(topicOf(t.topic_id)?.icon || "")} ${t.frequency === "weekly" ? "weekly" : "daily"}${t.reminder_time ? " · " + t.reminder_time.slice(0, 5) : ""}</span></div>`;
+      if (t) acts = `<div class="acts">${acts}<span class="muted" style="font-size:12px">${soft(topicOf(t.topic_id)?.icon || "")} ${freqLabel(t).toLowerCase()}${t.reminder_time ? " · " + t.reminder_time.slice(0, 5) : ""}</span></div>`;
       else acts = `<div class="acts">${acts}</div>`;
     }
     return `<div class="msg ${mine ? "mine" : ""} ${hit ? "hit" : ""}">${avatar(m.user_id, "sm")}
@@ -940,7 +962,7 @@ function msgHtml(m) {
   const ref = m.ref_type ? refInfo(m.ref_type, m.ref_id) : null;
   const status = ref ? ref.status : "deleted";
   const tag = status === "pending" ? `<span class="tag p">Pending</span>` : status === "approved" ? `<span class="tag" style="background:#dcfce7;color:#15803d">Approved</span>` : status === "rejected" ? `<span class="tag r">Declined</span>` : `<span class="tag">Deleted</span>`;
-  const extra = m.ref_type === "task" && ref?.x ? `<div class="muted" style="font-size:13px;margin-top:4px">${soft(topicOf(ref.x.topic_id)?.icon || "")} ${esc(topicOf(ref.x.topic_id)?.name || "")} · ${ref.x.frequency === "weekly" ? "weekly" : "daily"}${ref.x.reminder_time ? " · " + ref.x.reminder_time.slice(0, 5) : ""}</div>` : "";
+  const extra = m.ref_type === "task" && ref?.x ? `<div class="muted" style="font-size:13px;margin-top:4px">${soft(topicOf(ref.x.topic_id)?.icon || "")} ${esc(topicOf(ref.x.topic_id)?.name || "")} · ${freqLabel(ref.x).toLowerCase()}${ref.x.reminder_time ? " · " + ref.x.reminder_time.slice(0, 5) : ""}</div>` : "";
   return `<div class="sysmsg"><div class="box">
     <b>${esc(nameOf(m.user_id))}</b> ${soft(m.content)} <span class="time">${fmtTs(m.created_at)}</span>
     ${extra}
@@ -984,7 +1006,7 @@ function viewChat() {
       <div class="card" style="margin-top:16px">
         <h2 style="margin-bottom:8px">Today</h2>
         ${members().map((m) => {
-          const list = tasksFor(m.id);
+          const list = tasksFor(m.id).filter((t) => visibleOn(t, m.id, today()));
           const done = list.filter((t) => checkinOf(t.id, m.id, periodOf(t, today()))).length;
           const pct = list.length ? Math.round((done / list.length) * 100) : 0;
           return `<div class="row" style="margin:8px 0;flex-wrap:nowrap">${avatar(m.id, "sm")}<span style="width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.display_name)}</span><div class="bar"><div style="width:${pct}%"></div></div><b style="font-size:13px">${done}/${list.length}</b></div>`;
@@ -1149,7 +1171,7 @@ function checkReminders() {
 
 function icsEvent(t) {
   const [h, m] = t.reminder_time.slice(0, 5).split(":").map(Number);
-  const s = new Date();
+  const s = t.frequency === "once" ? parseYmd(onceDay(t)) : new Date();
   s.setHours(h, m, 0, 0);
   const e = new Date(s.getTime() + 15 * 60000);
   const f = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
@@ -1162,7 +1184,7 @@ function icsEvent(t) {
     `DTSTAMP:${stamp}`,
     `DTSTART:${f(s)}`,
     `DTEND:${f(e)}`,
-    `RRULE:FREQ=${t.frequency === "weekly" ? "WEEKLY" : "DAILY"}`,
+    ...(t.frequency === "once" ? [] : [`RRULE:FREQ=${t.frequency === "weekly" ? "WEEKLY" : "DAILY"}`]),
     `SUMMARY:${clean((topic?.icon || "") + " " + t.title)}`,
     `DESCRIPTION:${clean((t.description || "") + "\nUpload proof at: " + location.origin + location.pathname)}`,
     "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${clean(t.title)}`, "TRIGGER:PT0M", "END:VALARM",
@@ -1239,6 +1261,7 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("change", (e) => {
+  if (e.target.name === "tk-freq") { const w = $("#tk-due-wrap"); if (w) w.hidden = e.target.value !== "once"; }
   if (e.target.id === "day-pick" && e.target.value) { S.date = e.target.value > today() ? today() : e.target.value; render(); }
 });
 

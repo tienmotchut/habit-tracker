@@ -128,7 +128,7 @@ function mondayOf(day) {
 async function reminders() {
   const { day, mins } = localNow();
   const [{ data: tasks }, { data: topics }, { data: people }] = await Promise.all([
-    sb.from("tasks").select("id, topic_id, title, description, frequency, reminder_time, assignee_id").eq("status", "approved").not("reminder_time", "is", null),
+    sb.from("tasks").select("id, topic_id, title, description, frequency, reminder_time, assignee_id, due_date, created_at").eq("status", "approved").not("reminder_time", "is", null),
     sb.from("topics").select("id, icon, status"),
     sb.from("profiles").select("id").eq("approved", true),
   ]);
@@ -141,14 +141,17 @@ async function reminders() {
   });
   if (!due.length) return 0;
 
-  const periods = [...new Set([day, mondayOf(day)])];
+  const periodFor = (t) => t.frequency === "weekly" ? mondayOf(day)
+    : t.frequency === "once" ? (t.due_date || new Date(t.created_at).toLocaleDateString("en-CA", { timeZone: TIME_ZONE }))
+    : day;
+  const periods = [...new Set(due.map(periodFor))];
   const { data: done } = await sb.from("checkins").select("task_id, user_id, period_start")
     .in("task_id", due.map((t) => t.id)).in("period_start", periods);
   const doneSet = new Set((done || []).map((c) => `${c.task_id}:${c.user_id}:${c.period_start}`));
 
   const jobs = [];
   for (const t of due) {
-    const period = t.frequency === "weekly" ? mondayOf(day) : day;
+    const period = periodFor(t);
     const users = t.assignee_id ? [t.assignee_id] : (people || []).map((p) => p.id);
     for (const u of users) {
       if (doneSet.has(`${t.id}:${u}:${period}`)) continue;
@@ -161,7 +164,9 @@ async function reminders() {
     const icon = topicById[j.t.topic_id]?.icon || "⏰";
     sent += await sendTo([j.user], {
       title: `${icon} ${j.t.title}`,
-      body: j.t.frequency === "weekly" ? "Weekly task, not done yet this week. Upload your proof!" : "Time for your habit. Upload your proof when done!",
+      body: j.t.frequency === "weekly" ? "Weekly task, not done yet this week. Upload your proof!"
+        : j.t.frequency === "once" ? `One-time task${j.t.due_date ? ", due " + j.t.due_date : ""}. Upload your proof when done!`
+        : "Time for your habit. Upload your proof when done!",
       url: SITE_URL + "#today",
       tag: `rem-${j.t.id}`,
     });
