@@ -78,10 +78,16 @@ const tasksFor = (uid, topicId = "all") =>
 const periodOf = (task, day) => (task.frequency === "weekly" ? mondayOf(day) : day);
 const checkinOf = (taskId, uid, period) => S.checkins.find((c) => c.task_id === taskId && c.user_id === uid && c.period_start === period);
 
+/** Việc đang chờ CHÍNH MÌNH xử lý: chủ nhóm duyệt thành viên/chủ đề; ai được giao task thì Accept/Decline */
 const pendingItems = () => [
-  ...S.profiles.filter((p) => !p.approved).map((p) => ({ type: "member", item: p })),
-  ...S.topics.filter((t) => t.status === "pending").map((t) => ({ type: "topic", item: t })),
-  ...S.tasks.filter((t) => t.status === "pending").map((t) => ({ type: "task", item: t })),
+  ...(isOwner() ? S.profiles.filter((p) => !p.approved).map((p) => ({ type: "member", item: p })) : []),
+  ...(isOwner() ? S.topics.filter((t) => t.status === "pending").map((t) => ({ type: "topic", item: t })) : []),
+  ...S.tasks.filter((t) => t.status === "pending" && t.assignee_id === S.me?.id).map((t) => ({ type: "task", item: t })),
+];
+/** Mình đã gửi, đang chờ người khác */
+const waitingItems = () => [
+  ...(!isOwner() ? S.topics.filter((t) => t.status === "pending" && t.created_by === S.me?.id).map((t) => ({ type: "topic", item: t })) : []),
+  ...S.tasks.filter((t) => t.status === "pending" && t.created_by === S.me?.id && t.assignee_id !== S.me?.id).map((t) => ({ type: "task", item: t })),
 ];
 
 /* =============================================================
@@ -342,7 +348,7 @@ function viewToday() {
     <div class="stat"><b>${doneMine.length}/${mine.length}</b><span>Your tasks done</span></div>
     <div class="stat y"><b>${streakOf(uid)} 🔥</b><span>Day streak</span></div>
     <div class="stat"><b>${gExp ? Math.round((gDone / gExp) * 100) : 0}%</b><span>Group completion</span></div>
-    <div class="stat y"><b>${pendingItems().length}</b><span>Pending approval</span></div>
+    <div class="stat y"><b>${pendingItems().length}</b><span>Needs you</span></div>
   </div>
   <div class="row" style="margin-bottom:16px">
     <div class="date-nav">
@@ -668,20 +674,28 @@ function viewProgress() {
 const STATUS_TAG = { pending: `<span class="tag p">Pending</span>`, rejected: `<span class="tag r">Declined</span>`, approved: "" };
 
 function approveBtns(type, id) {
+  if (type === "task") {
+    const t = S.tasks.find((x) => x.id === id);
+    if (!t || t.status !== "pending" || t.assignee_id !== S.me.id) return "";
+    return `<button class="btn ok sm" data-act="approve" data-type="task" data-id="${id}">Accept</button>
+          <button class="btn danger sm" data-act="reject" data-type="task" data-id="${id}">Decline</button>`;
+  }
   if (!isOwner()) return "";
   return `<button class="btn ok sm" data-act="approve" data-type="${type}" data-id="${id}">Approve</button>
           <button class="btn danger sm" data-act="reject" data-type="${type}" data-id="${id}">Decline</button>`;
 }
+const taskTag = (t) => t.status === "pending" ? `<span class="tag p">${t.assignee_id === S.me.id ? "Waiting for you" : "Awaiting " + esc(nameOf(t.assignee_id))}</span>`
+  : t.status === "rejected" ? `<span class="tag r">Declined by ${esc(nameOf(t.assignee_id))}</span>` : "";
 
 function viewManage() {
   const f = S.manageFilter;
   const uid = S.me.id;
   const taskOk = (t) => f === "all" || (f === "pending" && t.status === "pending") || (f === "mine" && (t.assignee_id === uid || t.created_by === uid));
   const topics = S.topics.filter((tp) => f === "all" || (f === "pending" && (tp.status === "pending" || S.tasks.some((t) => t.topic_id === tp.id && t.status === "pending"))) || (f === "mine" && S.tasks.some((t) => t.topic_id === tp.id && taskOk(t))));
-  const canEdit = (x) => isOwner() || x.created_by === uid;
+  const canEdit = (x) => isOwner() || x.created_by === uid || (x.title !== undefined && x.assignee_id === uid);
   return `
   <h1 class="page">Topics & Tasks</h1>
-  <p class="sub">${isOwner() ? "You are the owner: anything you create is approved instantly, and members' proposals wait for you." : "You can propose topics, create tasks and assign them to anyone. The owner approves them."}</p>
+  <p class="sub">${isOwner() ? "Anyone can create tasks. If you assign a task to someone, they get an @ notification and accept or decline it. New topics and members still need your approval." : "Create tasks for yourself or the group, or assign one to someone: they get an @ notification and accept or decline it. New topics need the owner's approval."}</p>
   <div class="row" style="margin-bottom:16px">
     <div class="pills">
       <button class="${f === "all" ? "active" : ""}" data-act="mfilter" data-f="all">All</button>
@@ -709,7 +723,7 @@ function viewManage() {
       ${list.map((t) => `
         <div class="task-line ${t.status === "rejected" ? "faded" : ""}">
           <div style="flex:1 1 200px;min-width:0">
-            <b>${esc(t.title)}</b> ${STATUS_TAG[t.status]}<br>
+            <b>${esc(t.title)}</b> ${taskTag(t)}<br>
             <span class="tag ${t.frequency === "weekly" ? "y" : ""}">${t.frequency === "weekly" ? "Weekly" : "Daily"}</span>
             ${t.reminder_time ? `<span class="tag">⏰ ${t.reminder_time.slice(0, 5)}</span>` : ""}
             <span class="tag y">👤 ${t.assignee_id ? esc(nameOf(t.assignee_id)) : "Everyone"}</span>
@@ -718,7 +732,7 @@ function viewManage() {
           <div class="row acts">${t.status === "pending" ? approveBtns("task", t.id) : ""}
           ${t.reminder_time && t.status === "approved" ? `<button class="icon-btn" data-act="ics" data-id="${t.id}" title="Add reminder to calendar">📅</button>` : ""}
           ${canEdit(t) ? `<button class="icon-btn" data-act="edit-task" data-id="${t.id}" title="Edit">✏️</button>` : ""}
-          ${isOwner() || (t.created_by === uid && t.status === "pending") ? `<button class="icon-btn" data-act="del-task" data-id="${t.id}" title="Delete">🗑️</button>` : ""}</div>
+          ${isOwner() || t.created_by === uid ? `<button class="icon-btn" data-act="del-task" data-id="${t.id}" title="Delete">🗑️</button>` : ""}</div>
         </div>`).join("") || `<div class="muted" style="font-size:14px">No tasks yet.</div>`}
       ${tp.status !== "rejected" ? `<button class="btn ghost sm" style="margin-top:10px" data-act="new-task" data-topic="${tp.id}">＋ Task in this topic</button>` : ""}
     </div>`;
@@ -774,7 +788,7 @@ function openTaskModal(id, topicId) {
   const freq = t?.frequency || "daily";
   openModal(`
     <h2>${t ? "Edit task" : "New task"}</h2>
-    ${!isOwner() ? `<p class="muted" style="margin-top:0">${t ? "Edited tasks" : "New tasks"} wait for the owner's approval.</p>` : ""}
+    <p class="muted" style="margin-top:0">Assign it to someone else and they get an @ notification to accept or decline.</p>
     <label class="f">Task name</label><input class="in" id="tk-title" maxlength="100" value="${esc(t?.title || "")}" placeholder="e.g. Run 3 km" />
     <label class="f">Description / how to prove it</label><textarea class="in" id="tk-desc" maxlength="500" placeholder="e.g. Screenshot from your running app">${esc(t?.description || "")}</textarea>
     <div class="row" style="align-items:flex-start">
@@ -795,7 +809,7 @@ function openTaskModal(id, topicId) {
       ${t && t.reminder_time ? `<button class="btn ghost" data-act="ics" data-id="${t.id}">📅 Add to calendar</button>` : ""}
       <span class="spacer"></span>
       <button class="btn ghost" data-act="close-modal">Cancel</button>
-      <button class="btn y" id="tk-save">${isOwner() ? "Save" : "Submit for approval"}</button>
+      <button class="btn y" id="tk-save">${t ? "Save" : "Create task"}</button>
     </div>`);
   $("#tk-save").onclick = async () => {
     const row = {
@@ -813,7 +827,7 @@ function openTaskModal(id, topicId) {
     if (error) return toast(errMsg(error), true);
     upsertLocal("tasks", data);
     closeModal();
-    toast(data.status === "pending" ? "Submitted, waiting for the owner" : "Saved");
+    toast(data.status === "pending" ? `Sent to ${nameOf(data.assignee_id)} to accept` : "Saved");
     render();
   };
 }
@@ -836,6 +850,8 @@ async function setStatus(type, id, approve) {
     const { data, error } = await sb.from(table).update({ status: approve ? "approved" : "rejected" }).eq("id", id).select().single();
     if (error) return toast(errMsg(error), true);
     upsertLocal(table, data);
+    if (data.status === "pending") { render(); return toast("Only the person this task is assigned to can accept it", true); }
+    if (type === "task") { toast(approve ? "Accepted ✅ It's on your Today list now" : "Declined"); render(); return; }
   }
   toast(approve ? "Approved ✅" : "Declined");
   render();
@@ -906,8 +922,17 @@ function msgHtml(m) {
   const mine = m.user_id === S.user.id;
   if (m.kind === "chat") {
     const hit = !mine && mentionsMe(m.content);
+    let acts = "";
+    if (m.ref_type === "task") {
+      const t = S.tasks.find((x) => x.id === m.ref_id);
+      acts = !t ? `<span class="tag">Deleted</span>`
+        : t.status === "pending" ? (approveBtns("task", t.id) || taskTag(t))
+        : t.status === "approved" ? `<span class="tag" style="background:#e6ece1;color:#4f6b53">Accepted</span>` : taskTag(t);
+      if (t) acts = `<div class="acts">${acts}<span class="muted" style="font-size:12px">${soft(topicOf(t.topic_id)?.icon || "")} ${t.frequency === "weekly" ? "weekly" : "daily"}${t.reminder_time ? " · " + t.reminder_time.slice(0, 5) : ""}</span></div>`;
+      else acts = `<div class="acts">${acts}</div>`;
+    }
     return `<div class="msg ${mine ? "mine" : ""} ${hit ? "hit" : ""}">${avatar(m.user_id, "sm")}
-      <div><div class="who">${mine ? "" : esc(nameOf(m.user_id)) + " · "}${fmtTs(m.created_at)}</div><div class="bubble">${withMentions(m.content)}</div></div></div>`;
+      <div><div class="who">${mine ? "" : esc(nameOf(m.user_id)) + " · "}${fmtTs(m.created_at)}</div><div class="bubble">${withMentions(m.content)}${acts}</div></div></div>`;
   }
   if (m.kind === "system") {
     return `<div class="sysmsg"><div class="box plain">${soft(m.content)} <span class="time">${fmtTs(m.created_at)}</span></div></div>`;
@@ -928,7 +953,7 @@ function viewChat() {
   const pend = pendingItems();
   return `
   <h1 class="page">Chat & Approvals</h1>
-  <p class="sub">Talk with the group. Every topic and task proposal and join request shows up here${isOwner() ? " for you to approve" : ""}.</p>
+  <p class="sub">Talk with the group. Tasks assigned to you, new topics and join requests show up here.</p>
   <div class="chat-layout">
     <div class="card chat">
       <div class="chat-list">${S.messages.map(msgHtml).join("") || `<div class="empty">No messages yet. Say hi.</div>`}</div>
@@ -941,15 +966,20 @@ function viewChat() {
     </div>
     <div>
       <div class="card">
-        <h2 style="margin-bottom:6px">Pending approval <span class="count">${pend.length}</span></h2>
+        <h2 style="margin-bottom:6px">Needs you <span class="count">${pend.length}</span></h2>
         ${pend.map(({ type, item }) => `
           <div class="pending-item">
             <div><span class="tag ${type === "member" ? "y" : ""}">${type === "member" ? "Member" : type === "topic" ? "Topic" : "Task"}</span>
               <b>${soft(type === "member" ? item.display_name : type === "topic" ? item.icon + " " + item.name : item.title)}</b></div>
-            <div class="muted" style="font-size:12px;margin:3px 0 6px">${type === "member" ? "wants to join" : "proposed by " + esc(nameOf(item.created_by))}${type === "task" ? " · " + esc(topicOf(item.topic_id)?.name || "") + (item.assignee_id ? " · for " + esc(nameOf(item.assignee_id)) : "") : ""}</div>
-            <div class="row">${isOwner() ? approveBtns(type, item.id) : `<span class="muted" style="font-size:13px">Waiting for the owner</span>`}
-              ${type === "task" && (isOwner() || item.created_by === S.me.id) ? `<button class="btn ghost sm" data-act="edit-task" data-id="${item.id}">View</button>` : ""}</div>
-          </div>`).join("") || `<p class="muted">Nothing to approve</p>`}
+            <div class="muted" style="font-size:12px;margin:3px 0 6px">${type === "member" ? "wants to join" : (type === "task" ? "assigned by " : "proposed by ") + esc(nameOf(item.created_by))}${type === "task" ? " · " + esc(topicOf(item.topic_id)?.name || "") + (item.assignee_id ? " · for " + esc(nameOf(item.assignee_id)) : "") : ""}</div>
+            <div class="row">${approveBtns(type, item.id)}
+              ${type === "task" ? `<button class="btn ghost sm" data-act="edit-task" data-id="${item.id}">View</button>` : ""}</div>
+          </div>`).join("") || `<p class="muted">Nothing needs you right now</p>`}
+        ${waitingItems().length ? `<h2 style="margin:16px 0 6px;font-size:19px">Waiting on others</h2>` + waitingItems().map(({ type, item }) => `
+          <div class="pending-item">
+            <div><span class="tag">${type === "topic" ? "Topic" : "Task"}</span> <b>${soft(type === "topic" ? item.icon + " " + item.name : item.title)}</b></div>
+            <div class="muted" style="font-size:12px;margin-top:3px">${type === "topic" ? "waiting for the owner" : "waiting for " + esc(nameOf(item.assignee_id)) + " to accept"}</div>
+          </div>`).join("") : ""}
       </div>
       <div class="card" style="margin-top:16px">
         <h2 style="margin-bottom:8px">Today</h2>

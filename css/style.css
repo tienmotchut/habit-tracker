@@ -344,3 +344,4 @@ h2 { font-size: 24px; }
 /* ---------- Logo ---------- */
 .brand img.logo { width: 40px; height: 40px; border-radius: 50%; box-shadow: 0 2px 8px rgba(35, 84, 47, .18); background: none; display: block; padding: 0; }
 .auth .brand img.logo { width: 46px; height: 46px; }
+.bubble .acts { display: flex; gap: 6px; margin: 8px 0 0 !important; flex-wrap: wrap; align-items: center; white-space: normal; }

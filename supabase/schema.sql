@@ -113,9 +113,7 @@ language plpgsql as $$ begin new.updated_at := now(); return new; end $$;
 drop trigger if exists touch_updated_at on public.tasks;
 create trigger touch_updated_at before update on public.tasks
   for each row execute function public.touch_updated_at();
-drop trigger if exists enforce_approval on public.tasks;
-create trigger enforce_approval before insert or update on public.tasks
-  for each row execute function public.enforce_approval();
+
 
 -- ---------- Hoàn thành (check-in + minh chứng) ----------
 create table if not exists public.checkins (
@@ -171,9 +169,7 @@ end $$;
 drop trigger if exists post_approval_message on public.topics;
 create trigger post_approval_message after insert or update of status, name on public.topics
   for each row execute function public.post_approval_message();
-drop trigger if exists post_approval_message on public.tasks;
-create trigger post_approval_message after insert or update on public.tasks
-  for each row execute function public.post_approval_message();
+
 
 create or replace function public.post_member_message() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -227,13 +223,6 @@ drop policy if exists "tasks read" on public.tasks;
 create policy "tasks read" on public.tasks for select to authenticated using (public.is_member());
 drop policy if exists "tasks insert" on public.tasks;
 create policy "tasks insert" on public.tasks for insert to authenticated with check (public.is_member());
-drop policy if exists "tasks update" on public.tasks;
-create policy "tasks update" on public.tasks for update to authenticated
-  using (public.is_owner() or (public.is_member() and created_by = auth.uid()));
-drop policy if exists "tasks delete" on public.tasks;
-create policy "tasks delete" on public.tasks for delete to authenticated
-  using (public.is_owner() or (created_by = auth.uid() and status = 'pending'));
-
 -- checkins
 drop policy if exists "checkins read" on public.checkins;
 create policy "checkins read" on public.checkins for select to authenticated using (public.is_member());
@@ -262,6 +251,70 @@ grant usage, select on all sequences in schema public to authenticated;
 grant usage on schema public to service_role;
 grant all on all tables in schema public to service_role;
 grant all on all sequences in schema public to service_role;
+
+-- ---------- Task: giao cho ai thì người đó đồng ý ----------
+create or replace function public.task_rules() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then return new; end if;            -- SQL editor: giữ nguyên
+  if tg_op = 'INSERT' then
+    new.created_by := uid;
+    new.status := case when new.assignee_id is null or new.assignee_id = uid then 'approved' else 'pending' end;
+    return new;
+  end if;
+  new.created_by := old.created_by;
+  if new.assignee_id is distinct from old.assignee_id then
+    -- đổi người được giao -> người mới phải đồng ý (trừ khi giao cho cả nhóm / cho chính mình)
+    new.status := case when new.assignee_id is null or new.assignee_id = uid then 'approved' else 'pending' end;
+  elsif new.status is distinct from old.status then
+    -- chỉ người được giao mới được Accept / Decline
+    if not (uid = old.assignee_id and old.status = 'pending' and new.status in ('approved','rejected')) then
+      new.status := old.status;
+    end if;
+  end if;
+  return new;
+end $$;
+
+create or replace function public.task_messages() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  who  text := (select display_name from public.profiles where id = new.assignee_id);
+begin
+  if new.status = 'pending' and new.assignee_id is not null
+     and (tg_op = 'INSERT' or old.assignee_id is distinct from new.assignee_id or old.status <> 'pending') then
+    insert into public.messages (user_id, kind, content, ref_type, ref_id)
+    values (coalesce(auth.uid(), new.created_by), 'chat',
+            '@' || coalesce(who, '?') || ' assigned you a task: ' || new.title || '. Please accept or decline.',
+            'task', new.id);
+  elsif tg_op = 'UPDATE' and old.status = 'pending' and new.status in ('approved','rejected')
+        and auth.uid() = new.assignee_id then
+    insert into public.messages (user_id, kind, content, ref_type, ref_id)
+    values (auth.uid(), 'system',
+            case when new.status = 'approved' then '✅ ' || coalesce(who, '?') || ' accepted the task: '
+                 else '❌ ' || coalesce(who, '?') || ' declined the task: ' end || new.title,
+            'task', new.id);
+  end if;
+  return new;
+end $$;
+
+drop trigger if exists enforce_approval on public.tasks;
+drop trigger if exists post_approval_message on public.tasks;
+drop trigger if exists task_rules on public.tasks;
+create trigger task_rules before insert or update on public.tasks
+  for each row execute function public.task_rules();
+drop trigger if exists task_messages on public.tasks;
+create trigger task_messages after insert or update on public.tasks
+  for each row execute function public.task_messages();
+
+-- Ai được sửa / xoá task
+drop policy if exists "tasks update" on public.tasks;
+create policy "tasks update" on public.tasks for update to authenticated
+  using (public.is_member() and (public.is_owner() or created_by = auth.uid() or assignee_id = auth.uid()));
+drop policy if exists "tasks delete" on public.tasks;
+create policy "tasks delete" on public.tasks for delete to authenticated
+  using (public.is_owner() or created_by = auth.uid());
+
 
 -- ---------- Lưu file minh chứng ----------
 insert into storage.buckets (id, name, public, file_size_limit)
