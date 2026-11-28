@@ -985,7 +985,7 @@ function onNewMessage(m) {
 /* =============================================================
    Thông báo: trong trang + điện thoại (Web Push, miễn phí)
    ============================================================= */
-const FN_URL = SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/notify";
+const FN_URL = SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/smooth-api";
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;

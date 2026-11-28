@@ -45,7 +45,7 @@ create or replace function public.notify_new_message() returns trigger
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform net.http_post(
-    url     := 'https://fffhjcqyffpnrioybmpj.supabase.co/functions/v1/notify',
+    url     := 'https://fffhjcqyffpnrioybmpj.supabase.co/functions/v1/smooth-api',
     body    := jsonb_build_object('type', 'message', 'id', new.id),
     headers := '{"Content-Type": "application/json"}'::jsonb
   );
@@ -63,7 +63,7 @@ select cron.unschedule(jobname) from cron.job where jobname in ('habit-reminders
 
 select cron.schedule('habit-reminders', '* * * * *', $job$
   select net.http_post(
-    url     := 'https://fffhjcqyffpnrioybmpj.supabase.co/functions/v1/notify',
+    url     := 'https://fffhjcqyffpnrioybmpj.supabase.co/functions/v1/smooth-api',
     body    := '{"type": "reminders"}'::jsonb,
     headers := '{"Content-Type": "application/json"}'::jsonb
   );

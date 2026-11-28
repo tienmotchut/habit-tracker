@@ -1,6 +1,6 @@
 // Supabase Edge Function "notify" — gửi thông báo đẩy (Web Push) miễn phí.
 // Dán toàn bộ file này vào Supabase > Edge Functions > Deploy a new function > Via Editor,
-// đặt tên function là: notify   (và TẮT "Verify JWT").
+// tên function trong web đang dùng: smooth-api   (và TẮT "Verify JWT").
 //
 // Function tự tạo cặp khoá VAPID ở lần chạy đầu và lưu trong bảng push_config,
 // nên bạn KHÔNG cần tạo hay dán khoá bí mật nào.
