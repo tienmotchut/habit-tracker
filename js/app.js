@@ -1035,7 +1035,7 @@ function onNewMessage(m) {
     localNotify(hit ? `${who} mentioned you` : m.kind === "chat" ? who : "Needs approval", m.kind === "chat" ? m.content : `${who} ${m.content}`, "msg");
   }
   const n = notifOfMessage(m);
-  if (n) toast(n.text.length > 90 ? n.text.slice(0, 88) + "…" : n.text);
+  if (n && !(S.tab === "chat" && m.kind === "chat")) toast("💬 " + (n.text.length > 90 ? n.text.slice(0, 88) + "…" : n.text));
 }
 
 /* =============================================================
@@ -1165,6 +1165,8 @@ function notifOfMessage(m) {
     return { id: "m" + m.id, at: m.created_at, who: m.user_id, tab: "chat",
       text: task ? `${who} assigned you a task: ${task.title}` : `${who} mentioned you: ${m.content.replace(/\s+/g, " ")}` };
   }
+  if (m.kind === "chat")
+    return { id: "m" + m.id, at: m.created_at, who: m.user_id, tab: "chat", text: `${who}: ${m.content.replace(/\s+/g, " ")}` };
   if ((m.kind === "proposal" || m.kind === "join") && isOwner())
     return { id: "m" + m.id, at: m.created_at, who: m.user_id, tab: "chat", text: `${who} ${m.content}` };
   if (m.kind === "system" && m.ref_id) {

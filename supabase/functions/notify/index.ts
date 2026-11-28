@@ -92,8 +92,12 @@ async function onMessage(id) {
   if (m.kind === "chat") {
     const text = fold(m.content);
     const everyone = text.includes("@everyone");
-    const targets = members.filter((p) => everyone || text.includes("@" + fold(p.display_name))).map((p) => p.id);
-    return sendTo(targets, { title: `${author} mentioned you`, body: m.content.slice(0, 180), url: SITE_URL + "#chat", tag: `msg-${id}` });
+    const tagged = new Set(members.filter((p) => everyone || text.includes("@" + fold(p.display_name))).map((p) => p.id));
+    const others = members.map((p) => p.id).filter((u) => !tagged.has(u));
+    const a = await sendTo([...tagged], { title: `${author} mentioned you`, body: m.content.slice(0, 180), url: SITE_URL + "#chat", tag: `msg-${id}` });
+    // mọi tin nhắn chat đều báo cho cả nhóm (gộp theo người gửi để không bị dồn nhiều dòng)
+    const b = await sendTo(others, { title: `💬 ${author}`, body: m.content.slice(0, 180), url: SITE_URL + "#chat", tag: `chat-${m.user_id}` });
+    return a + b;
   }
   if (m.kind === "proposal" || m.kind === "join") {
     return sendTo(owners, { title: "Needs your approval", body: `${author} ${m.content}`.slice(0, 180), url: SITE_URL + "#chat", tag: `ap-${m.ref_id || id}` });
